@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- KSP 1.12.x tourne sur Mono 4.x : on cible le .NET Framework 4.8 -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <AssemblyName>Losket</AssemblyName>
+    <RootNamespace>Losket</RootNamespace>
+    <Product>Losket</Product>
+    <Version>0.1.0</Version>
+
+    <!-- La DLL est ecrite directement dans le GameData du depot -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>$(RepoRoot)GameData\Losket\Plugins\</OutputPath>
+
+    <IsPackable>false</IsPackable>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+    <NoWarn>CS0649;CS1591;CS0108;CS0414</NoWarn>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+  </PropertyGroup>
+
+  <!-- Assemblages de reference .NET Framework : evite d'avoir besoin de Visual Studio -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Assemblages KSP / Unity. Private=false : on ne les recopie pas dans GameData. -->
+  <ItemGroup>
+    <Reference Include="$(KSPManaged)Assembly-CSharp.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(KSPManaged)Assembly-CSharp-firstpass.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(KSPManaged)UnityEngine*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

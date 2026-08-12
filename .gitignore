@@ -1,0 +1,37 @@
+# --- Build .NET ---
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+LocalSettings.props
+
+# Sortie de build du mod : regeneree par Tools/build.ps1
+GameData/Losket/Plugins/
+GameData/Losket/Shaders/*.shaderbundle
+GameData/Losket/Shaders/*.manifest
+
+# --- Unity ---
+Unity/*/Library/
+Unity/*/Temp/
+Unity/*/Obj/
+Unity/*/Logs/
+Unity/*/UserSettings/
+Unity/*/[Bb]uild/
+Unity/*/[Bb]uilds/
+Unity/*/Assets/AssetStoreTools*
+Unity/*/*.csproj
+Unity/*/*.sln
+*.pidb
+*.booproj
+*.unityproj
+
+# --- Reglages locaux de l'outillage (specifiques a la machine) ---
+.claude/settings.local.json
+
+# --- Divers ---
+*.log
+Thumbs.db
+desktop.ini
+
+# --- Reference externe (decompressee depuis le zip, pas versionnee) ---
+shabby/Shabby-main/

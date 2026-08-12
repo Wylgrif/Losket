@@ -1,0 +1,33 @@
+<Project>
+
+  <!--
+    Proprietes communes a tous les projets Losket.
+    Pour pointer vers une autre install KSP sans toucher au depot, creer un
+    fichier LocalSettings.props a la racine (il est ignore par git) :
+
+      <Project>
+        <PropertyGroup>
+          <KSPRoot>D:\Mon\Autre\KSP</KSPRoot>
+        </PropertyGroup>
+      </Project>
+  -->
+
+  <PropertyGroup>
+    <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+  </PropertyGroup>
+
+  <Import Project="$(RepoRoot)LocalSettings.props" Condition="Exists('$(RepoRoot)LocalSettings.props')" />
+
+  <PropertyGroup>
+    <!-- Install KSP de developpement (propre, ~6 Go, sans mods tiers) -->
+    <KSPRoot Condition="'$(KSPRoot)' == ''">C:\KSPDev\KSP-1.12.5-Losket</KSPRoot>
+    <KSPManaged>$(KSPRoot)\KSP_x64_Data\Managed\</KSPManaged>
+    <KSPGameData>$(KSPRoot)\GameData\</KSPGameData>
+  </PropertyGroup>
+
+  <Target Name="LosketCheckKSPRoot" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(KSPManaged)Assembly-CSharp.dll')"
+           Text="Introuvable : $(KSPManaged)Assembly-CSharp.dll&#xA;KSPRoot vaut actuellement '$(KSPRoot)'. Corrige-le dans LocalSettings.props a la racine du depot." />
+  </Target>
+
+</Project>
