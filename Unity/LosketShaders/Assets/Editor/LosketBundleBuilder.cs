@@ -42,9 +42,9 @@ namespace Losket.EditorTools
 				GraphicsDeviceType.OpenGLCore,
 			});
 
-			// A CONFIRMER : voir la ligne "espace colorimetrique" dans KSP.log au demarrage.
-			// Si KSP rapporte Gamma, repasser cette valeur a ColorSpace.Gamma.
-			PlayerSettings.colorSpace = ColorSpace.Linear;
+			// Confirme le 2026-08-12 par la ligne de demarrage de LosketBootstrap :
+			// KSP 1.12.5 tourne en espace colorimetrique Gamma.
+			PlayerSettings.colorSpace = ColorSpace.Gamma;
 
 			EditorUserBuildSettings.SwitchActiveBuildTarget(
 				BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64);
@@ -54,9 +54,48 @@ namespace Losket.EditorTools
 			          + PlayerSettings.colorSpace + ", cible StandaloneWindows64.");
 		}
 
+		/// <summary>
+		/// Verifie que le projet declare les modules indispensables a la production
+		/// d'AssetBundles lisibles par un player.
+		///
+		/// Un manifeste allege produit un bundle d'apparence parfaitement normale
+		/// (en-tete UnityFS valide, bonne version de serialisation, bonne cible) que
+		/// le runtime refuse ensuite avec un message trompeur sur la version d'Unity.
+		/// Le cas s'est produit ici : un manifeste ecrit a la main omettait
+		/// com.unity.modules.assetbundle, et le diagnostic a coute plusieurs heures.
+		/// </summary>
+		private static bool ManifestLooksSane()
+		{
+			var manifestPath = Path.GetFullPath(Path.Combine(Application.dataPath,
+				Path.Combine("..", Path.Combine("Packages", "manifest.json"))));
+
+			if (!File.Exists(manifestPath)) {
+				Debug.LogError("[Losket] Packages/manifest.json introuvable : " + manifestPath);
+				return false;
+			}
+
+			var text = File.ReadAllText(manifestPath);
+			var missing = new[] { "com.unity.modules.assetbundle" }
+				.Where(m => !text.Contains(m)).ToArray();
+
+			if (missing.Length > 0) {
+				Debug.LogError("[Losket] Packages/manifest.json n'declare pas " +
+				               string.Join(", ", missing) +
+				               ". Le bundle serait produit sans erreur mais refuse au chargement. " +
+				               "Utilise le manifeste par defaut d'Unity 2019.4 (38 modules).");
+				return false;
+			}
+
+			return true;
+		}
+
 		[MenuItem("Losket/Compiler le bundle de shaders %#b", false, 2)]
 		public static void BuildBundle()
 		{
+			if (!ManifestLooksSane()) {
+				return;
+			}
+
 			if (!Directory.Exists(ShaderFolder)) {
 				Debug.LogError("[Losket] dossier introuvable : " + ShaderFolder);
 				return;
@@ -94,9 +133,15 @@ namespace Losket.EditorTools
 
 			// 2) Compiler le bundle.
 			Directory.CreateDirectory(TempBuildDir);
+			// LZ4 (ChunkBasedCompression) et non LZMA : c'est le format attendu pour un
+			// chargement par AssetBundle.LoadFromFile au runtime.
+			// ForceRebuild : sans lui, Unity reutilise le cache de Library/, ce qui peut
+			// melanger des donnees produites sous d'anciens reglages (compression,
+			// espace colorimetrique) avec le bundle courant.
 			var manifest = BuildPipeline.BuildAssetBundles(
 				TempBuildDir,
-				BuildAssetBundleOptions.None,
+				BuildAssetBundleOptions.ChunkBasedCompression |
+				BuildAssetBundleOptions.ForceRebuildAssetBundle,
 				BuildTarget.StandaloneWindows64);
 
 			if (manifest == null) {
@@ -126,6 +171,34 @@ namespace Losket.EditorTools
 			Debug.Log(string.Format(
 				"[Losket] bundle ecrit : {0} ({1:N0} octets, {2} shader(s) : {3})",
 				outPath, new FileInfo(outPath).Length, names.Length, string.Join(", ", names)));
+		}
+
+		/// <summary>
+		/// Recharge le bundle produit avec la meme API que le plugin en jeu
+		/// (AssetBundle.LoadFromFile) pour verifier qu'il est lisible au runtime,
+		/// sans avoir a demarrer KSP.
+		/// </summary>
+		[MenuItem("Losket/Tester le chargement du bundle", false, 3)]
+		public static void TestLoadBundle()
+		{
+			var path = Path.Combine(RepoRoot,
+				Path.Combine("GameData", Path.Combine("Losket", Path.Combine("Shaders", OutputFileName))));
+
+			if (!File.Exists(path)) {
+				Debug.LogError("[LosketTest] bundle absent : " + path);
+				return;
+			}
+
+			var bundle = AssetBundle.LoadFromFile(path);
+			if (bundle == null) {
+				Debug.LogError("[LosketTest] ECHEC : LoadFromFile a renvoye null pour " + path);
+				return;
+			}
+
+			var loaded = bundle.LoadAllAssets<Shader>();
+			Debug.Log("[LosketTest] OK : " + loaded.Length + " shader(s) — "
+			          + string.Join(", ", loaded.Select(s => s.name + (s.isSupported ? "" : " (NON SUPPORTE)")).ToArray()));
+			bundle.Unload(true);
 		}
 	}
 }
