@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starship Heatshield Marks Generator</title>
+    <style>
+        :root {
+            --bg-color: #0d0d12;
+            --panel-bg: #16161e;
+            --panel-border: #2a2a35;
+            --accent: #4a6ee0;
+            --accent-hover: #5a7ce0;
+            --text-main: #e2e2e8;
+            --text-muted: #8a8a98;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        #sidebar {
+            width: 350px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--panel-border);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        
+        .header {
+            padding: 20px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+            color: white;
+        }
+        
+        .header p {
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .controls-scroll {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        /* Custom scrollbar */
+        .controls-scroll::-webkit-scrollbar { width: 8px; }
+        .controls-scroll::-webkit-scrollbar-track { background: var(--panel-bg); }
+        .controls-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .controls-scroll::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        .control-group {
+            margin-bottom: 25px;
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .control-group h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 13px;
+            text-transform: uppercase;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+
+        .slider-row {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 15px;
+        }
+        
+        .slider-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        
+        .slider-labels span.label {
+            color: var(--text-main);
+        }
+
+        .slider-labels span.val {
+            background: #000;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: var(--text-muted);
+            border: 1px solid var(--panel-border);
+            min-width: 35px;
+            text-align: right;
+        }
+
+        input[type=range] {
+            width: 100%;
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 14px;
+            width: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            margin-top: -5px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #333;
+            border-radius: 2px;
+        }
+        
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex-grow: 1;
+            padding: 12px;
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+        
+        button.secondary {
+            background-color: transparent;
+            border: 1px solid var(--panel-border);
+            color: var(--text-main);
+            box-shadow: none;
+        }
+        
+        button.secondary:hover {
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        #canvas-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #050505;
+            position: relative;
+            /* Background grid pattern */
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        canvas {
+            background-color: #000;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            max-height: 95vh;
+            max-width: 95vw;
+            border: 1px solid #111;
+            object-fit: contain;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background: rgba(0,0,0,0.8);
+            padding: 15px 30px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: none;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="header">
+            <h1>Starship Heatshield Generator</h1>
+            <p>Générateur algorithmique de marques de rentrée atmosphérique avec regroupement, bruit et heatmap de densité.</p>
+        </div>
+        
+        <div class="controls-scroll">
+            <div class="btn-group">
+                <button id="btnGenerate">Générer</button>
+            </div>
+
+            <div class="control-group">
+                <h3>Densité & Quantité</h3>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Quantité de marques</span>
+                        <span class="val" id="qtyVal">1500</span>
+                    </div>
+                    <input type="range" id="qty" min="100" max="5000" value="1500" step="100">
+                </div>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Dispersion verticale (Clusters)</span>
+                        <span class="val" id="dispersionVal">0.6</span>
+                    </div>
+                    <input type="range" id="dispersion" min="0.1" max="2.0" value="0.6" step="0.1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Géométrie des Flammes</h3>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Angle moyen (vers le bas)</span>
+                        <span class="val" id="angleVal">15°</span>
+                    </div>
+                    <input type="range" id="angle" min="0" max="60" value="15" step="1">
+                </div>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Variation d'angle</span>
+                        <span class="val" id="angleVarVal">10°</span>
+                    </div>
+                    <input type="range" id="angleVar" min="0" max="30" value="10" step="1">
+                </div>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Longueur de référence</span>
+                        <span class="val" id="lengthVal">150</span>
+                    </div>
+                    <input type="range" id="length" min="30" max="400" value="150" step="10">
+                </div>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Variation de longueur</span>
+                        <span class="val" id="lengthVarVal">0.7</span>
+                    </div>
+                    <input type="range" id="lengthVar" min="0.1" max="1.5" value="0.7" step="0.1">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h3>Apparence & Rendu</h3>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Intensité colonne vertébrale</span>
+                        <span class="val" id="spineIntVal">0.6</span>
+                    </div>
+                    <input type="range" id="spineInt" min="0" max="1" value="0.6" step="0.05">
+                </div>
+
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Opacité des marques</span>
+                        <span class="val" id="opacityVal">0.8</span>
+                    </div>
+                    <input type="range" id="opacity" min="0.1" max="1.0" value="0.8" step="0.05">
+                </div>
+                
+                <div class="slider-row">
+                    <div class="slider-labels">
+                        <span class="label">Granularité (Bruit)</span>
+                        <span class="val" id="noiseVal">1.0</span>
+                    </div>
+                    <input type="range" id="noise" min="0.2" max="2.0" value="1.0" step="0.1">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="renderCanvas" width="1200" height="1800"></canvas>
+        <div id="loading">Génération en cours...</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('renderCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Opti
+        const loading = document.getElementById('loading');
+
+        // Inputs
+        const els = {
+            qty: document.getElementById('qty'),
+            qtyVal: document.getElementById('qtyVal'),
+            dispersion: document.getElementById('dispersion'),
+            dispersionVal: document.getElementById('dispersionVal'),
+            angle: document.getElementById('angle'),
+            angleVal: document.getElementById('angleVal'),
+            angleVar: document.getElementById('angleVar'),
+            angleVarVal: document.getElementById('angleVarVal'),
+            length: document.getElementById('length'),
+            lengthVal: document.getElementById('lengthVal'),
+            lengthVar: document.getElementById('lengthVar'),
+            lengthVarVal: document.getElementById('lengthVarVal'),
+            spineInt: document.getElementById('spineInt'),
+            spineIntVal: document.getElementById('spineIntVal'),
+            opacity: document.getElementById('opacity'),
+            opacityVal: document.getElementById('opacityVal'),
+            noise: document.getElementById('noise'),
+            noiseVal: document.getElementById('noiseVal')
+        };
+
+        function updateLabels() {
+            els.qtyVal.textContent = els.qty.value;
+            els.dispersionVal.textContent = els.dispersion.value;
+            els.angleVal.textContent = els.angle.value + '°';
+            els.angleVarVal.textContent = els.angleVar.value + '°';
+            els.lengthVal.textContent = els.length.value;
+            els.lengthVarVal.textContent = els.lengthVar.value;
+            els.spineIntVal.textContent = els.spineInt.value;
+            els.opacityVal.textContent = els.opacity.value;
+            els.noiseVal.textContent = els.noise.value;
+        }
+
+        // Attach events
+        Object.keys(els).forEach(key => {
+            if(els[key].type === 'range') {
+                els[key].addEventListener('input', updateLabels);
+            }
+        });
+
+        document.getElementById('btnGenerate').addEventListener('click', () => {
+            loading.style.display = 'block';
+            // Allow UI to update before heavy computation
+            setTimeout(generate, 50); 
+        });
+
+        // Gaussian Random using Box-Muller transform
+        function randomGaussian(mean = 0, stdev = 1) {
+            let u = 1 - Math.random();
+            let v = Math.random();
+            let z = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+            return z * stdev + mean;
+        }
+
+        function generate() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+
+            // Clear canvas
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, w, h);
+
+            // Fetch params
+            const qty = parseInt(els.qty.value);
+            const disp = parseFloat(els.dispersion.value);
+            const baseAngle = parseFloat(els.angle.value);
+            const angleVar = parseFloat(els.angleVar.value);
+            const baseLen = parseFloat(els.length.value);
+            const lenVar = parseFloat(els.lengthVar.value);
+            const spineInt = parseFloat(els.spineInt.value);
+            const baseOpacity = parseFloat(els.opacity.value);
+            const noiseLevel = parseFloat(els.noise.value);
+
+            // 1. Generate Heatmap (1D density along Y)
+            const density = new Float32Array(h);
+            const numClusters = Math.max(3, Math.floor(h / (disp * 150))); 
+            const clusters = [];
+            
+            for(let i = 0; i < numClusters; i++) {
+                clusters.push({
+                    y: Math.random() * h,
+                    spread: 80 + Math.random() * 250 * disp,
+                    weight: 0.3 + Math.random() * 0.7
+                });
+            }
+
+            let maxDensity = 0;
+            for(let y = 0; y < h; y++) {
+                let d = 0;
+                for(let c of clusters) {
+                    let dist = y - c.y;
+                    d += c.weight * Math.exp(-(dist * dist) / (2 * c.spread * c.spread));
+                }
+                d += 0.05; // Base noise floor
+                density[y] = d;
+                if(d > maxDensity) maxDensity = d;
+            }
+
+            // Normalize density [0, 1]
+            for(let y = 0; y < h; y++) {
+                density[y] /= maxDensity;
+            }
+
+            // 2. Draw Spine (colonne vertébrale)
+            if (spineInt > 0) {
+                ctx.save();
+                for(let y = 0; y < h; y++) {
+                    let d = density[y];
+                    // Width is broader where density is high
+                    let spineW = 2 + Math.pow(d, 1.5) * 20; 
+                    // Alpha depends directly on density
+                    let alpha = d * spineInt;
+                    
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    
+                    // Add micro-noise to the spine edges
+                    let noiseW = spineW + randomGaussian(0, noiseLevel * 2);
+                    if (noiseW < 1) noiseW = 1;
+                    
+                    ctx.fillRect(cx - noiseW/2, y, noiseW, 1);
+                }
+                ctx.restore();
+            }
+
+            // 3. Prepare Marks Distribution
+            const yCandidates = [];
+            // Weighted random selection: populate array based on density
+            for(let y = 0; y < h; y+=3) {
+                let weight = Math.floor(density[y] * 100);
+                for(let i = 0; i < weight; i++) {
+                    yCandidates.push(y);
+                }
+            }
+
+            // 4. Draw Marks
+            ctx.globalCompositeOperation = 'screen'; // Creates the glowing burn effect
+            
+            for(let i = 0; i < qty; i++) {
+                // Pick Y position biased by heatmap
+                let y = yCandidates[Math.floor(Math.random() * yCandidates.length)];
+                
+                // Determine side (Left = -1, Right = 1)
+                let side = Math.random() < 0.5 ? -1 : 1;
+                
+                // Angle logic: 0 is horizontal. Positive means pointing downwards.
+                let angle = randomGaussian(baseAngle, angleVar);
+                let rad = angle * Math.PI / 180;
+                
+                // Length logic
+                let length = randomGaussian(baseLen, baseLen * lenVar);
+                if (length < 20) length = 20;
+                
+                let localDensity = density[y];
+                
+                drawMark(ctx, cx, y, side, rad, length, baseOpacity, localDensity, noiseLevel);
+            }
+            
+            ctx.globalCompositeOperation = 'source-over';
+            loading.style.display = 'none';
+        }
+
+        function drawMark(ctx, cx, y, side, rad, length, baseOpacity, localDensity, noiseLevel) {
+            // A mark is drawn as a cluster of particles/streaks to simulate granular plasma burn
+            let particleCount = Math.floor( (30 + length * 0.15) * noiseLevel );
+            
+            ctx.save();
+            // Start the flame slightly inside or outside the spine
+            let offsetX = randomGaussian(0, 10 * localDensity) * side;
+            ctx.translate(cx + offsetX, y);
+            
+            for(let p = 0; p < particleCount; p++) {
+                // Particle jitter relative to origin
+                let px = randomGaussian(0, 5 * noiseLevel);
+                let py = randomGaussian(0, 8 * noiseLevel);
+                
+                // Individual streak length
+                let pLen = randomGaussian(length * 0.6, length * 0.3);
+                if(pLen < 10) pLen = 10;
+                
+                // Individual streak angle variation
+                let pRad = rad + randomGaussian(0, 0.08 * noiseLevel);
+                
+                let dx = Math.cos(pRad) * side;
+                let dy = Math.sin(pRad); // downward drift
+                
+                let size = randomGaussian(1.5, 0.8 * noiseLevel);
+                if(size < 0.2) size = 0.2;
+                
+                // Draw path
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                
+                // Add curvature to simulate fluid dynamics/airflow
+                let midX = px + dx * pLen * 0.5 + randomGaussian(0, pLen * 0.05 * noiseLevel);
+                let midY = py + dy * pLen * 0.5 + randomGaussian(0, pLen * 0.05 * noiseLevel);
+                
+                let endX = px + dx * pLen;
+                let endY = py + dy * pLen;
+                
+                ctx.quadraticCurveTo(midX, midY, endX, endY);
+                
+                // Opacity is lower for individual particles to build up a texture
+                let alpha = (baseOpacity * 0.15) * randomGaussian(1, 0.2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.lineWidth = size;
+                ctx.stroke();
+                
+                // Occasionally drop a brighter "hotspot" node
+                if(Math.random() < 0.05 * noiseLevel) {
+                    ctx.beginPath();
+                    ctx.arc(midX, midY, size * 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 2})`;
+                    ctx.fill();
+                }
+            }
+            
+            ctx.restore();
+        }
+
+        // Init
+        updateLabels();
+        setTimeout(generate, 100);
+
+    </script>
+</body>
+</html>

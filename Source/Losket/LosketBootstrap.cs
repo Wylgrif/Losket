@@ -14,8 +14,13 @@ namespace Losket
 	/// de passer par Shabby : Shabby capte l'extension .shab, donc si les deux
 	/// chargeaient le meme fichier Unity refuserait le second chargement. Notre
 	/// extension .shaderbundle est ignoree par le GameDatabase de KSP.
+	///
+	/// Le point d'entree est MainMenu et non Instantly. A Instantly le moteur
+	/// rejette le bundle avec un message trompeur sur la version d'Unity ; le
+	/// systeme d'assets n'est pas encore pret. Les bundles stock de KSP sont
+	/// charges bien plus tard, et le meme fichier passe sans probleme a MainMenu.
 	/// </summary>
-	[KSPAddon(KSPAddon.Startup.Instantly, true)]
+	[KSPAddon(KSPAddon.Startup.MainMenu, true)]
 	public class LosketBootstrap : MonoBehaviour
 	{
 		public const string ModName = "Losket";
@@ -27,6 +32,13 @@ namespace Losket
 
 		/// <summary>Vrai si le bundle a ete charge et contient au moins un shader.</summary>
 		public static bool ShadersLoaded { get; private set; }
+
+		/// <summary>
+		/// LUT de revenu (temperature -> teinte), generee par Tools/make_temper_lut.py.
+		/// Stockee dans PluginData et chargee ici plutot que par le GameDatabase :
+		/// KSP compresserait le degrade en DXT, ce qui y dessinerait des bandes.
+		/// </summary>
+		public static Texture2D TemperLut { get; private set; }
 
 		/// <summary>Recupere un shader du bundle par son nom, ou null s'il est absent.</summary>
 		public static Shader GetShader(string name)
@@ -51,48 +63,94 @@ namespace Losket
 				Camera.main != null ? Camera.main.actualRenderingPath.ToString() : "(pas de camera)"));
 
 			LoadShaderBundle();
+			LoadTemperLut();
+		}
+
+		private void LoadTemperLut()
+		{
+			var pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+			var path = Path.GetFullPath(
+				Path.Combine(pluginDir, Path.Combine("..", Path.Combine("PluginData", "temper_lut.png"))));
+
+			if (!File.Exists(path)) {
+				LogWarning("LUT de revenu introuvable : " + path +
+				           " — genere-la avec Tools/make_temper_lut.py");
+				return;
+			}
+
+			var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+			if (!tex.LoadImage(File.ReadAllBytes(path))) {
+				LogError("echec du decodage de " + path);
+				Destroy(tex);
+				return;
+			}
+
+			tex.wrapMode = TextureWrapMode.Clamp;
+			tex.filterMode = FilterMode.Bilinear;
+			TemperLut = tex;
+			Log("LUT de revenu chargee (" + tex.width + "x" + tex.height + ")");
 		}
 
 		private void LoadShaderBundle()
 		{
 			var pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-			var bundlePath = Path.GetFullPath(
-				Path.Combine(pluginDir, Path.Combine("..", Path.Combine("Shaders", BundleFileName))));
+			var shaderDir = Path.GetFullPath(Path.Combine(pluginDir, Path.Combine("..", "Shaders")));
 
-			if (!File.Exists(bundlePath)) {
-				LogWarning("bundle de shaders introuvable : " + bundlePath +
-				           " — compile-le depuis Unity (menu Losket > Build Shader Bundle).");
+			if (!Directory.Exists(shaderDir)) {
+				LogWarning("dossier de shaders introuvable : " + shaderDir);
 				return;
 			}
 
-			AssetBundle bundle = null;
+			// On parcourt tout le dossier plutot que de viser un seul nom de fichier.
+			// Cela permet de deposer un bundle temoin d'un autre mod a cote du notre
+			// pour comparer les deux dans une meme partie.
+			var files = Directory.GetFiles(shaderDir);
+			if (files.Length == 0) {
+				LogWarning("aucun bundle dans " + shaderDir +
+				           " — compile-le depuis Unity (menu Losket > Compiler le bundle de shaders).");
+				return;
+			}
+
+			foreach (var path in files) {
+				LoadOneBundle(path);
+			}
+
+			ShadersLoaded = shaders.Count > 0;
+			Log(shaders.Count + " shader(s) disponible(s) au total");
+		}
+
+		private void LoadOneBundle(string path)
+		{
+			var name = Path.GetFileName(path);
+			var size = new FileInfo(path).Length;
+
+			AssetBundle bundle;
 			try {
-				bundle = AssetBundle.LoadFromFile(bundlePath);
+				bundle = AssetBundle.LoadFromFile(path);
 			} catch (Exception e) {
-				LogError("echec du chargement du bundle : " + e);
+				LogError(name + " (" + size + " o) : exception — " + e.Message);
 				return;
 			}
 
 			if (bundle == null) {
-				LogError("AssetBundle.LoadFromFile a renvoye null pour " + bundlePath +
-				         " — bundle compile pour la mauvaise plateforme ou une version d'Unity differente ?");
+				LogError(name + " (" + size + " o) : LoadFromFile a renvoye null");
 				return;
 			}
 
-			foreach (var shader in bundle.LoadAllAssets<Shader>()) {
+			// On compte tous les assets, pas seulement les shaders : un bundle temoin
+			// sans shader doit quand meme apparaitre comme charge avec succes.
+			var all = bundle.LoadAllAssets();
+			var loaded = bundle.LoadAllAssets<Shader>();
+			Log(name + " (" + size + " o) : OK, " + all.Length + " asset(s) dont "
+			    + loaded.Length + " shader(s)");
+
+			foreach (var shader in loaded) {
 				shaders[shader.name] = shader;
-				if (shader.isSupported) {
-					Log("shader charge : " + shader.name);
-				} else {
-					LogError("shader non supporte par ce GPU/API : " + shader.name);
-				}
+				Log("    " + shader.name + (shader.isSupported ? "" : "  [NON SUPPORTE PAR CE GPU]"));
 			}
 
 			// Libere le fichier sur disque sans detruire les shaders deja charges.
 			bundle.Unload(false);
-
-			ShadersLoaded = shaders.Count > 0;
-			Log(shaders.Count + " shader(s) charge(s) depuis " + BundleFileName);
 		}
 
 		internal static void Log(string message)
