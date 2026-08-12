@@ -79,11 +79,32 @@ chargeur pour `.shab`, et Unity refuse qu'un même fichier soit chargé deux foi
 en tant qu'AssetBundle. Charger nous-mêmes supprime aussi toute dépendance
 obligatoire à Shabby.
 
+**Ne pas alléger `Packages/manifest.json`.** Le projet Unity doit conserver le
+manifeste par défaut d'Unity 2019.4 et ses 38 modules. Un manifeste réduit
+produit un AssetBundle d'apparence parfaitement valide — en-tête UnityFS
+correct, version de sérialisation 21, cible `StandaloneWindows64`, mêmes
+dépendances externes qu'un bundle qui fonctionne — que KSP refuse ensuite avec
+un message trompeur :
+
+> The AssetBundle … could not be loaded because it is not compatible with this
+> newer version of the Unity runtime.
+
+Le module critique est `com.unity.modules.assetbundle`. `BuildBundle` vérifie
+désormais sa présence avant de compiler et refuse de produire un bundle sans
+lui. Aucun symptôme n'apparaît côté Unity : le projet s'ouvre, le shader
+compile, le build réussit.
+
 **Espace colorimétrique.** `PlayerSettings.colorSpace` du projet Unity doit
-correspondre à celui de KSP, sinon les couleurs seront décalées. Il est fixé à
-`Linear` par défaut ; la valeur réelle de KSP est journalisée au démarrage par
-`LosketBootstrap` (ligne `espace colorimetrique …` dans `KSP.log`). Ajuster si
-elle diffère.
+correspondre à celui de KSP. KSP 1.12.5 tourne en **Gamma** (vérifié dans le
+journal de démarrage), le projet est réglé en conséquence. La valeur réelle est
+journalisée à chaque lancement par `LosketBootstrap`.
+
+**Où lire les journaux.** KSP écrit dans `KSP.log` à la racine du jeu *et* dans
+`%USERPROFILE%\AppData\LocalLow\Squad\Kerbal Space Program\Player.log`. Le
+premier peut rester figé sur une ancienne session ; `Tools/logtail.ps1` prend
+automatiquement le plus récent des deux et affiche lequel il a retenu. Tant que
+le jeu tient un journal ouvert, ni sa taille ni sa date d'entrée de répertoire
+ne sont rafraîchies — il faut lire le flux, pas les métadonnées.
 
 **APIs graphiques.** Le bundle est compilé pour Direct3D11 et OpenGLCore. Sans
 OpenGLCore, les shaders apparaissent en magenta pour les joueurs qui lancent KSP
