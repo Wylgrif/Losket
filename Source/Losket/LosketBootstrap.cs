@@ -40,6 +40,21 @@ namespace Losket
 		/// </summary>
 		public static Texture2D TemperLut { get; private set; }
 
+		private static readonly Dictionary<string, Color> dustColors =
+			new Dictionary<string, Color>();
+
+		private static readonly Color DefaultDustColor = new Color(0.5f, 0.45f, 0.4f);
+
+		/// <summary>Couleur de la poussiere du corps, depuis les noeuds
+		/// LOSKET_BODY_DUST (voir Configs/dust-colors.cfg).</summary>
+		public static Color GetDustColor(CelestialBody body)
+		{
+			Color color;
+			return body != null && dustColors.TryGetValue(body.bodyName, out color)
+				? color
+				: DefaultDustColor;
+		}
+
 		/// <summary>Recupere un shader du bundle par son nom, ou null s'il est absent.</summary>
 		public static Shader GetShader(string name)
 		{
@@ -64,6 +79,25 @@ namespace Losket
 
 			LoadShaderBundle();
 			LoadTemperLut();
+			LoadDustColors();
+		}
+
+		private void LoadDustColors()
+		{
+			foreach (var node in GameDatabase.Instance.GetConfigNodes("LOSKET_BODY_DUST")) {
+				var body = node.GetValue("body");
+				var colorText = node.GetValue("color");
+				if (string.IsNullOrEmpty(body) || string.IsNullOrEmpty(colorText)) {
+					LogWarning("noeud LOSKET_BODY_DUST incomplet ignore (body=" + body + ")");
+					continue;
+				}
+				try {
+					dustColors[body] = ConfigNode.ParseColor(colorText);
+				} catch (Exception) {
+					LogWarning("couleur illisible pour LOSKET_BODY_DUST " + body + " : " + colorText);
+				}
+			}
+			Log(dustColors.Count + " couleur(s) de poussiere chargee(s)");
 		}
 
 		private void LoadTemperLut()

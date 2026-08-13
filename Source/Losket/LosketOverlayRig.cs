@@ -21,6 +21,26 @@ namespace Losket
 		public float Pattern;
 		public float Bleach;
 
+		/// <summary>Couleur du depot : suie sombre pour la brulure, couleur du
+		/// sol pour la poussiere.</summary>
+		public Color DepositColor;
+
+		/// <summary>File de rendu du materiau, 0 = celle du shader. La poussiere
+		/// se rend apres la brulure (elle se depose par-dessus).</summary>
+		public int RenderQueue;
+
+		/// <summary>
+		/// Si vrai, le gradient le long du flux utilise une fenetre exprimee en
+		/// PROJECTION MONDE ([WorldFlowMin, WorldFlowMin + WorldFlowRange] le
+		/// long de WorldFlowDir) au lieu des bornes du maillage de chaque piece.
+		/// C'est ce qui rend le degrade continu entre pieces empilees : chaque
+		/// piece lit sa fraction de la meme rampe vaisseau, au lieu de repartir
+		/// de zero a son propre bord.
+		/// </summary>
+		public bool UseWorldWindow;
+		public float WorldFlowMin;
+		public float WorldFlowRange;
+
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
 		{
@@ -36,6 +56,8 @@ namespace Losket
 				NoiseScale = 3f,
 				Pattern = 0f,
 				Bleach = 0f,
+				DepositColor = new Color(0.06f, 0.055f, 0.05f),
+				RenderQueue = 0,
 			};
 		}
 	}
@@ -48,35 +70,42 @@ namespace Losket
 	public class LosketOverlayRig
 	{
 		public const string OverlayName = "losketBurnOverlay";
+		public const string DustOverlayName = "losketDustOverlay";
 
 		private readonly List<Renderer> overlays = new List<Renderer>();
+		private readonly List<Renderer> sources = new List<Renderer>();
 		private readonly List<Material> materials = new List<Material>();
 		private readonly List<Material[]> materialSlots = new List<Material[]>();
 		private readonly List<Bounds> meshBounds = new List<Bounds>();
 		private readonly string ownerId;
+		private readonly string overlayName;
 
 		public int Count { get { return overlays.Count; } }
 
 		public IList<Renderer> Overlays { get { return overlays; } }
 		public IList<Material> Materials { get { return materials; } }
 
-		private LosketOverlayRig(string ownerId)
+		private LosketOverlayRig(string ownerId, string overlayName)
 		{
 			this.ownerId = ownerId;
+			this.overlayName = overlayName;
 		}
 
 		/// <summary>
-		/// Cree les overlays d'une piece. Purge d'abord tout overlay existant :
+		/// Cree les overlays d'une piece. Purge d'abord tout overlay du meme nom :
 		/// l'editeur clone des GameObjects vivants (symetrie, copie alt+clic) et
 		/// ces orphelins resteraient pilotes par les materiaux d'une autre piece.
+		/// La purge est limitee a son propre nom pour que les rigs de brulure et
+		/// de poussiere d'une meme piece cohabitent.
 		/// </summary>
-		public static LosketOverlayRig Create(Part part, Shader shader, string ownerId)
+		public static LosketOverlayRig Create(Part part, Shader shader, string ownerId,
+			string overlayName = OverlayName)
 		{
-			var rig = new LosketOverlayRig(ownerId);
+			var rig = new LosketOverlayRig(ownerId, overlayName);
 
 			var stale = 0;
 			foreach (var t in part.GetComponentsInChildren<Transform>(true)) {
-				if (t != null && t.name == OverlayName) {
+				if (t != null && t.name == overlayName) {
 					UnityEngine.Object.Destroy(t.gameObject);
 					stale++;
 				}
@@ -87,7 +116,9 @@ namespace Losket
 				if (source.name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0) {
 					continue;
 				}
-				if (source.name == OverlayName) {
+				// Ne jamais dupliquer un overlay Losket, le sien ou celui d'un
+				// autre rig de la meme piece.
+				if (source.name == OverlayName || source.name == DustOverlayName) {
 					continue;
 				}
 
@@ -96,7 +127,7 @@ namespace Losket
 					continue;
 				}
 
-				var go = new GameObject(OverlayName);
+				var go = new GameObject(overlayName);
 				go.transform.SetParent(source.transform, false);
 				go.layer = source.gameObject.layer;
 
@@ -105,6 +136,27 @@ namespace Losket
 				var material = new Material(shader);
 				if (LosketBootstrap.TemperLut != null) {
 					material.SetTexture("_TemperLut", LosketBootstrap.TemperLut);
+				}
+
+				// Pieces a texture ajouree (parachutes, poutrelles, grilles) : on
+				// reprend l'alpha de la texture d'origine comme masque de
+				// decoupe, mais UNIQUEMENT si le shader de base est de type
+				// cutout/transparent. Sur les shaders opaques de KSP, l'alpha de
+				// _MainTex encode la specularite : le prendre pour un masque
+				// effacerait le depot sur les zones mates.
+				var sourceMat = source.sharedMaterial;
+				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null) {
+					var shaderName = sourceMat.shader.name;
+					if (shaderName.IndexOf("Cutoff", StringComparison.OrdinalIgnoreCase) >= 0 ||
+					    shaderName.IndexOf("Cutout", StringComparison.OrdinalIgnoreCase) >= 0 ||
+					    shaderName.IndexOf("Transparent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+					    shaderName.IndexOf("Translucent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+					    shaderName.IndexOf("Alpha", StringComparison.OrdinalIgnoreCase) >= 0) {
+						material.SetTexture("_BaseTex", sourceMat.mainTexture);
+						material.SetTextureScale("_BaseTex", sourceMat.mainTextureScale);
+						material.SetTextureOffset("_BaseTex", sourceMat.mainTextureOffset);
+						material.SetFloat("_UseBaseAlpha", 1f);
+					}
 				}
 
 				var renderer = go.AddComponent<MeshRenderer>();
@@ -118,6 +170,7 @@ namespace Losket
 				renderer.receiveShadows = false;
 
 				rig.overlays.Add(renderer);
+				rig.sources.Add(source);
 				rig.materials.Add(material);
 				rig.materialSlots.Add(slots);
 				rig.meshBounds.Add(filter.sharedMesh.bounds);
@@ -138,6 +191,18 @@ namespace Losket
 				}
 				var m = materials[i];
 
+				// Suit la visibilite du renderer d'origine : une voile de
+				// parachute repliee (renderer desactive) ne doit pas laisser un
+				// fantome de poussiere flotter a sa place.
+				var src = sources[i];
+				var srcVisible = src != null && src.enabled;
+				if (r.enabled != srcVisible) {
+					r.enabled = srcVisible;
+				}
+				if (!srcVisible) {
+					continue;
+				}
+
 				// Auto-reparation : d'autres systemes de KSP (variantes,
 				// highlighter, opacite de l'editeur) reassignent parfois les
 				// materiaux des renderers qu'ils trouvent sous le modele. On
@@ -155,12 +220,28 @@ namespace Losket
 				var objDir = r.transform.InverseTransformDirection(p.WorldFlowDir).normalized;
 				var b = meshBounds[i];
 
-				// Projection de l'AABB du maillage sur l'axe du flux, pour le
-				// gradient positionnel (1 au bord au vent, 0 a l'oppose).
-				var center = Vector3.Dot(b.center, objDir);
-				var extent = Mathf.Abs(b.extents.x * objDir.x) +
-				             Mathf.Abs(b.extents.y * objDir.y) +
-				             Mathf.Abs(b.extents.z * objDir.z);
+				// Fenetre du gradient positionnel. Deux modes :
+				//  - fenetre vaisseau (continuite entre pieces) : la fenetre
+				//    monde est convertie dans l'espace objet de cet overlay via
+				//    dot(posMonde, dir) = s·dot(posObjet, dirObjet) + dot(t, dir) ;
+				//  - fenetre maillage (previsualisation d'une piece isolee).
+				float flowMin, flowRange;
+				if (p.UseWorldWindow) {
+					var s = r.transform.lossyScale.x;
+					if (Mathf.Abs(s) < 1e-4f) {
+						s = 1f;
+					}
+					var t = Vector3.Dot(r.transform.position, p.WorldFlowDir);
+					flowMin = (p.WorldFlowMin - t) / s;
+					flowRange = p.WorldFlowRange / s;
+				} else {
+					var center = Vector3.Dot(b.center, objDir);
+					var extent = Mathf.Abs(b.extents.x * objDir.x) +
+					             Mathf.Abs(b.extents.y * objDir.y) +
+					             Mathf.Abs(b.extents.z * objDir.z);
+					flowMin = center - extent;
+					flowRange = 2f * extent;
+				}
 
 				// Axe de la colonne vertebrale : la plus grande dimension du
 				// maillage, debarrassee de sa composante le long du flux. C'est
@@ -187,8 +268,8 @@ namespace Losket
 				m.SetVector("_BurnDirO", objDir);
 				m.SetVector("_SpineAxisO", spine);
 				m.SetFloat("_SlantAft", slant);
-				m.SetFloat("_FlowMin", center - extent);
-				m.SetFloat("_FlowRange", 2f * extent);
+				m.SetFloat("_FlowMin", flowMin);
+				m.SetFloat("_FlowRange", flowRange);
 				m.SetFloat("_BurnMag", p.BurnMag);
 				m.SetFloat("_PeakTemp", p.PeakTemp);
 				m.SetFloat("_DirPower", p.DirPower);
@@ -199,6 +280,10 @@ namespace Losket
 				m.SetFloat("_NoiseScale", p.NoiseScale);
 				m.SetFloat("_Pattern", p.Pattern);
 				m.SetFloat("_Bleach", p.Bleach);
+				m.SetColor("_SootColor", p.DepositColor);
+				if (p.RenderQueue > 0 && m.renderQueue != p.RenderQueue) {
+					m.renderQueue = p.RenderQueue;
+				}
 			}
 		}
 
@@ -218,6 +303,38 @@ namespace Losket
 			materials.Clear();
 			materialSlots.Clear();
 			meshBounds.Clear();
+		}
+
+		/// <summary>
+		/// Fenetre de projection de tout le vaisseau le long d'une direction
+		/// monde : bornes des positions de pieces, elargies d'une marge pour
+		/// couvrir leurs maillages. Sert au gradient continu entre pieces.
+		/// </summary>
+		public static void ComputeVesselWindow(Vessel vessel, Vector3 worldDir,
+			out float min, out float range)
+		{
+			const float margin = 1.5f;
+			var lo = float.MaxValue;
+			var hi = float.MinValue;
+			for (var i = 0; i < vessel.parts.Count; i++) {
+				var p = vessel.parts[i];
+				if (p == null) {
+					continue;
+				}
+				var d = Vector3.Dot(p.transform.position, worldDir);
+				if (d < lo) {
+					lo = d;
+				}
+				if (d > hi) {
+					hi = d;
+				}
+			}
+			if (lo > hi) {
+				lo = 0f;
+				hi = 0f;
+			}
+			min = lo - margin;
+			range = hi - lo + 2f * margin;
 		}
 
 		private static Vector3 LongestAxis(Vector3 size)
