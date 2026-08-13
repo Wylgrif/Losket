@@ -206,14 +206,14 @@ namespace Losket
 				// Auto-reparation : d'autres systemes de KSP (variantes,
 				// highlighter, opacite de l'editeur) reassignent parfois les
 				// materiaux des renderers qu'ils trouvent sous le modele. On
-				// journalise l'usurpateur — piece a conviction — et on reprend
+				// journalise l'usurpateur - piece a conviction - et on reprend
 				// la main.
 				var current = r.sharedMaterial;
 				if (!ReferenceEquals(current, m)) {
 					LosketBootstrap.LogWarning(ownerId + " : materiau de l'overlay " + i +
 						" remplace par '" +
 						(current != null ? current.name + "' (shader " + current.shader.name + ")" : "null'") +
-						" — reassigne");
+						" - reassigne");
 					r.sharedMaterials = materialSlots[i];
 				}
 
@@ -223,7 +223,7 @@ namespace Losket
 				// Fenetre du gradient positionnel. Deux modes :
 				//  - fenetre vaisseau (continuite entre pieces) : la fenetre
 				//    monde est convertie dans l'espace objet de cet overlay via
-				//    dot(posMonde, dir) = s·dot(posObjet, dirObjet) + dot(t, dir) ;
+				//    dot(posMonde, dir) = s*dot(posObjet, dirObjet) + dot(t, dir) ;
 				//  - fenetre maillage (previsualisation d'une piece isolee).
 				float flowMin, flowRange;
 				if (p.UseWorldWindow) {

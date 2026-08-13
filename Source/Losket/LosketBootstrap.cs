@@ -68,7 +68,7 @@ namespace Losket
 
 			var version = Assembly.GetExecutingAssembly().GetName().Version;
 			Log(string.Format(
-				"v{0} — demarrage. KSP {1}.{2}.{3}, Unity {4}, rendu {5}, " +
+				"v{0} - demarrage. KSP {1}.{2}.{3}, Unity {4}, rendu {5}, " +
 				"espace colorimetrique {6}, chemin de rendu {7}",
 				version,
 				Versioning.version_major, Versioning.version_minor, Versioning.Revision,
@@ -108,7 +108,7 @@ namespace Losket
 
 			if (!File.Exists(path)) {
 				LogWarning("LUT de revenu introuvable : " + path +
-				           " — genere-la avec Tools/make_temper_lut.py");
+				           " - genere-la avec Tools/make_temper_lut.py");
 				return;
 			}
 
@@ -141,7 +141,7 @@ namespace Losket
 			var files = Directory.GetFiles(shaderDir);
 			if (files.Length == 0) {
 				LogWarning("aucun bundle dans " + shaderDir +
-				           " — compile-le depuis Unity (menu Losket > Compiler le bundle de shaders).");
+				           " - compile-le depuis Unity (menu Losket > Compiler le bundle de shaders).");
 				return;
 			}
 
@@ -162,7 +162,7 @@ namespace Losket
 			try {
 				bundle = AssetBundle.LoadFromFile(path);
 			} catch (Exception e) {
-				LogError(name + " (" + size + " o) : exception — " + e.Message);
+				LogError(name + " (" + size + " o) : exception - " + e.Message);
 				return;
 			}
 
