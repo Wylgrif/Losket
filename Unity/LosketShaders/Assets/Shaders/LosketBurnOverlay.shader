@@ -28,6 +28,14 @@ Shader "Losket/BurnOverlay"
 		_TemperLut ("LUT de revenu (temperature -> teinte)", 2D) = "white" {}
 		_SootColor ("Couleur de la suie", Color) = (0.06, 0.055, 0.05, 1)
 
+		// Masque de decoupe pour les pieces a texture ajouree (parachutes,
+		// poutrelles, grilles) : l'alpha de la texture d'origine limite le depot
+		// aux zones reellement opaques. Active uniquement quand le shader de
+		// base est de type cutout/transparent — sur les shaders opaques de KSP,
+		// l'alpha de _MainTex encode la specularite, pas la decoupe.
+		_BaseTex ("Texture de base (masque alpha)", 2D) = "white" {}
+		_UseBaseAlpha ("Utiliser l'alpha de la base", Range(0, 1)) = 0
+
 		_BurnMag ("Intensite de brulure", Range(0, 1)) = 0.5
 		_PeakTemp ("Temperature de pointe (normalisee)", Range(0, 1)) = 0.65
 		_DirPower ("Concentration directionnelle", Range(0.2, 8)) = 2
@@ -74,6 +82,9 @@ Shader "Losket/BurnOverlay"
 			#include "Lighting.cginc"
 
 			sampler2D _TemperLut;
+			sampler2D _BaseTex;
+			float4 _BaseTex_ST;
+			float _UseBaseAlpha;
 			fixed4 _SootColor;
 			float _BurnMag, _PeakTemp, _DirPower, _Spread, _Sharpness, _Streak;
 			float _NoiseScale, _Pattern, _Bleach, _Wrap;
@@ -84,6 +95,7 @@ Shader "Losket/BurnOverlay"
 			{
 				float4 vertex : POSITION;
 				float3 normal : NORMAL;
+				float2 uv : TEXCOORD0;
 			};
 
 			struct v2f
@@ -92,6 +104,7 @@ Shader "Losket/BurnOverlay"
 				float3 wNormal : TEXCOORD0;
 				float3 oPos : TEXCOORD1;
 				float3 oNormal : TEXCOORD2;
+				float2 uv : TEXCOORD3;
 			};
 
 			// Hash sans sinus (precision stable sur tous les GPU).
@@ -106,7 +119,9 @@ Shader "Losket/BurnOverlay"
 			{
 				float3 i = floor(p);
 				float3 f = frac(p);
-				f = f * f * (3.0 - 2.0 * f);
+				// Interpolation quintique : la cubique laisse voir la grille du
+				// bruit ("pixels") sur les grandes pieces.
+				f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
 				return lerp(
 					lerp(lerp(hash13(i + float3(0, 0, 0)), hash13(i + float3(1, 0, 0)), f.x),
 					     lerp(hash13(i + float3(0, 1, 0)), hash13(i + float3(1, 1, 0)), f.x), f.y),
@@ -122,6 +137,7 @@ Shader "Losket/BurnOverlay"
 				o.wNormal = UnityObjectToWorldNormal(v.normal);
 				o.oPos = v.vertex.xyz;
 				o.oNormal = v.normal;
+				o.uv = TRANSFORM_TEX(v.uv, _BaseTex);
 				return o;
 			}
 
@@ -135,14 +151,21 @@ Shader "Losket/BurnOverlay"
 				float facing = saturate((dot(n, dw) + _Wrap) / (1.0 + _Wrap));
 				float mask = pow(facing, _DirPower);
 
-				// --- Gradient le long du flux : 1 au bord au vent, 0 a l'oppose ---
-				float proj = saturate((dot(i.oPos, dl) - _FlowMin) / max(_FlowRange, 1e-4));
-				mask *= pow(proj, _Spread);
+				// --- Gradient le long du flux : 1 au bord au vent, 0 a l'oppose.
+				// _Spread <= 0.01 le desactive : un depot fige (poussiere) ne
+				// doit pas dependre de la geometrie actuelle. ---
+				if (_Spread > 0.01) {
+					float proj = saturate((dot(i.oPos, dl) - _FlowMin) / max(_FlowRange, 1e-4));
+					mask *= pow(proj, _Spread);
+				}
 
-				// --- Motif taches : bruit isotrope, legerement etire ---
+				// --- Motif taches : bruit isotrope, legerement etire. Trois
+				// octaves decalees pour casser la grille sur les grandes pieces. ---
 				float3 p = i.oPos * _NoiseScale;
 				float3 pb = p - dl * dot(p, dl) * (1.0 - 1.0 / _Streak);
-				float blob = vnoise(pb) * 0.6 + vnoise(pb * 2.63 + 17.3) * 0.4;
+				float blob = vnoise(pb) * 0.5
+				           + vnoise(pb * 2.63 + 17.3) * 0.32
+				           + vnoise(pb * 5.71 + 31.9) * 0.18;
 				float blobGrime = pow(saturate(mask * _BurnMag * (0.45 + 1.1 * blob) * 1.6), _Sharpness);
 
 				// --- Motif stries : decomposition de la demo de reference ---
@@ -195,6 +218,9 @@ Shader "Losket/BurnOverlay"
 				fixed3 deposit = lerp(_SootColor.rgb, fixed3(0.93, 0.91, 0.88), _Bleach);
 				fixed3 col = lerp(temper.rgb, deposit, soot);
 				float alpha = saturate(max(soot * 0.95, temperA));
+
+				// Pieces ajourees : rien ne se depose dans les trous.
+				alpha *= lerp(1.0, tex2D(_BaseTex, i.uv).a, _UseBaseAlpha);
 
 				// Eclairage minimal : ambiante + directionnelle principale.
 				float ndl = saturate(dot(n, _WorldSpaceLightPos0.xyz));

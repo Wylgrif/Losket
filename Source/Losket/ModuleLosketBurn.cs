@@ -154,6 +154,13 @@ namespace Losket
 
 			var p = BurnParams.Defaults();
 			p.WorldFlowDir = part.transform.TransformDirection(flowPart);
+
+			// Fenetre de gradient PAR MAILLAGE, volontairement : elle est figee
+			// en espace objet, donc stable quels que soient le vol, le staging ou
+			// l'orientation. Une fenetre a l'echelle du vaisseau rendrait le
+			// motif dependant de la position actuelle de la piece — un depot
+			// accumule ne doit jamais bouger apres coup (lecon du scintillement
+			// de la poussiere).
 			p.BurnMag = mag;
 			p.PeakTemp = Mathf.Clamp01((peakSkinTemp - temperMin) / (temperMax - temperMin));
 			p.Wrap = Mathf.Lerp(2f, 1.3f, dirStrength);
