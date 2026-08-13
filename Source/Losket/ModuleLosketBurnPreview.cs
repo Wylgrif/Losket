@@ -12,7 +12,7 @@ namespace Losket
 	public class ModuleLosketBurnPreview : PartModule
 	{
 		private const string Group = "LosketPreview";
-		private const string GroupTitle = "Losket — brulure (dev)";
+		private const string GroupTitle = "Losket - brulure (dev)";
 
 		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true,
 			guiName = "Brulure", groupName = Group, groupDisplayName = GroupTitle),
@@ -94,6 +94,20 @@ namespace Losket
 
 		public override void OnStart(StartState state)
 		{
+			// Outil de developpement : masque, sauf si l'option "Interface de
+			// developpement" des reglages de partie (menu Difficulte > Losket)
+			// est activee. L'interface normale vit dans ModuleLosketBurn.
+			var settings = LosketSettings.Instance;
+			if (settings == null || !settings.interfaceDev) {
+				foreach (BaseField field in Fields) {
+					field.guiActive = false;
+					field.guiActiveEditor = false;
+				}
+				Events["DumpState"].guiActive = false;
+				Events["DumpState"].guiActiveEditor = false;
+				return;
+			}
+
 			// En vol, si la piece porte le module d'accumulation, ce module-ci
 			// devient un simple porteur de style : c'est la physique qui decide
 			// de l'intensite, pas les curseurs. Un vaisseau lance propre reste

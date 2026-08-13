@@ -76,7 +76,7 @@ namespace Losket
 						continue;
 					}
 					// Rotors Breaking Ground : le souffle d'helice est estime par
-					// couple x regime. Il n'existe qu'en atmosphere — sans air,
+					// couple x regime. Il n'existe qu'en atmosphere - sans air,
 					// pas de flux descendant, quel que soit le regime. Constante
 					// calibree a l'oeil en jeu (l'ancienne valeur 0.001 salissait
 					// ~14x trop vite pour etre credible).
