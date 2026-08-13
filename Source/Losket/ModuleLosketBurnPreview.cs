@@ -94,6 +94,15 @@ namespace Losket
 
 		public override void OnStart(StartState state)
 		{
+			// En vol, si la piece porte le module d'accumulation, ce module-ci
+			// devient un simple porteur de style : c'est la physique qui decide
+			// de l'intensite, pas les curseurs. Un vaisseau lance propre reste
+			// propre jusqu'a sa rentree.
+			if (HighLogic.LoadedSceneIsFlight &&
+			    part.FindModuleImplementing<ModuleLosketBurn>() != null) {
+				return;
+			}
+
 			if (!LosketBootstrap.ShadersLoaded) {
 				LosketBootstrap.LogWarning(part.partInfo.name +
 					" : shaders non charges, previsualisation desactivee");
