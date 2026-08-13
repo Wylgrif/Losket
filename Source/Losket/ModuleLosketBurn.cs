@@ -50,6 +50,14 @@ namespace Losket
 		private LosketOverlayRig rig;
 		private Shader shader;
 
+		/// <summary>
+		/// Si la piece porte aussi le module de previsualisation, ses reglages
+		/// d'editeur (persistes dans le .sfs) definissent le STYLE de la brulure
+		/// en vol : motif, stries, nettete, echelle, eclaircissement, etalement.
+		/// L'intensite, la direction et la temperature restent a la physique.
+		/// </summary>
+		private ModuleLosketBurnPreview style;
+
 		/// <summary>Noircissement 0..1 derive de la dose (integrale saturante).</summary>
 		private float BurnMag
 		{
@@ -64,6 +72,7 @@ namespace Losket
 			shader = LosketBootstrap.ShadersLoaded
 				? LosketBootstrap.GetShader("Losket/BurnOverlay")
 				: null;
+			style = part.FindModuleImplementing<ModuleLosketBurnPreview>();
 		}
 
 		private void FixedUpdate()
@@ -77,6 +86,15 @@ namespace Losket
 			var skin = (float)part.skinTemperature;
 			if (skin > peakSkinTemp) {
 				peakSkinTemp = skin;
+			}
+
+			// A l'abri d'une coiffe ou d'une soute, pas de flux direct : pas de
+			// suie. On s'appuie sur l'occlusion aerodynamique du jeu lui-meme
+			// (le meme drapeau qui annule la trainee et le chauffage convectif).
+			// Le pic de temperature reste suivi au-dessus : KSP le maintient bas
+			// pour une piece abritee, donc le revenu reste coherent tout seul.
+			if (part.ShieldedFromAirstream) {
+				return;
 			}
 
 			var rho = vessel.atmDensity;
@@ -140,6 +158,16 @@ namespace Losket
 			p.PeakTemp = Mathf.Clamp01((peakSkinTemp - temperMin) / (temperMax - temperMin));
 			p.Wrap = Mathf.Lerp(2f, 1.3f, dirStrength);
 			p.DirPower = Mathf.Lerp(0.5f, 1.5f, dirStrength);
+
+			// Style choisi dans l'editeur, si la piece en porte un.
+			if (style != null) {
+				p.Pattern = style.patternPreset == "Stries" ? 1f : 0f;
+				p.Sharpness = style.sharpness;
+				p.Streak = style.streak;
+				p.NoiseScale = style.noiseScale;
+				p.Bleach = style.bleach;
+				p.Spread = style.spread;
+			}
 
 			rig.Apply(p);
 		}
