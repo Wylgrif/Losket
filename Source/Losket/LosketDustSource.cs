@@ -63,6 +63,28 @@ namespace Losket
 				return;
 			}
 
+			// Surfaces artificielles : pas de tir, pistes, toits — propres, rien
+			// a soulever. Trois filets complementaires :
+			//  1. pre-lancement : par definition sur une installation ;
+			//  2. pose sur une installation nommee (landedAt est vide sur le
+			//     terrain naturel) ;
+			//  3. en survol, un rayon vers le sol : si le collider touche n'est
+			//     pas un quad de terrain PQS, c'est du bati (KSC, statics de
+			//     mods type Kerbal Konstructs).
+			if (vessel.situation == Vessel.Situations.PRELAUNCH) {
+				return;
+			}
+			if (vessel.Landed && !string.IsNullOrEmpty(vessel.landedAt)) {
+				return;
+			}
+			var up = (vessel.transform.position - body.position).normalized;
+			RaycastHit hit;
+			if (Physics.Raycast(vessel.CoM + up * 2f, -up, out hit, 300f,
+				    1 << 15, QueryTriggerInteraction.Ignore) &&
+			    hit.collider.GetComponentInParent<PQ>() == null) {
+				return;
+			}
+
 			var pressureAtm = (float)(vessel.staticPressurekPa / 101.325);
 
 			var thrust = 0f;

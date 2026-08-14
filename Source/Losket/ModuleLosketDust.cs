@@ -163,6 +163,10 @@ namespace Losket
 			}
 
 			var p = BurnParams.Defaults();
+			if (owner != null) {
+				owner.EnsurePatternFrame();
+				p.PartToPattern = owner.PatternMatrix;
+			}
 			p.WorldFlowDir = part.transform.TransformDirection(downPart);
 
 			// Aucun gradient positionnel au rendu (_Spread = 0 le desactive) :
