@@ -86,6 +86,12 @@ Shader "Losket/BurnOverlay"
 			float4 _BaseTex_ST;
 			float _UseBaseAlpha;
 			fixed4 _SootColor;
+
+			// Espace "motif" : le repere du vaisseau capture au premier vol de
+			// la piece et fige dans la sauvegarde. Le bruit y est continu entre
+			// pieces voisines, colle a chaque piece pour toujours, et insensible
+			// au docking (chaque vaisseau garde le repere qu'il a capture).
+			float4x4 _ObjToPattern;
 			float _BurnMag, _PeakTemp, _DirPower, _Spread, _Sharpness, _Streak;
 			float _NoiseScale, _Pattern, _Bleach, _Wrap;
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;
@@ -103,7 +109,7 @@ Shader "Losket/BurnOverlay"
 				float4 pos : SV_POSITION;
 				float3 wNormal : TEXCOORD0;
 				float3 oPos : TEXCOORD1;
-				float3 oNormal : TEXCOORD2;
+				float3 sPos : TEXCOORD2;
 				float2 uv : TEXCOORD3;
 			};
 
@@ -136,7 +142,7 @@ Shader "Losket/BurnOverlay"
 				o.pos = UnityObjectToClipPos(v.vertex);
 				o.wNormal = UnityObjectToWorldNormal(v.normal);
 				o.oPos = v.vertex.xyz;
-				o.oNormal = v.normal;
+				o.sPos = mul(_ObjToPattern, float4(v.vertex.xyz, 1.0)).xyz;
 				o.uv = TRANSFORM_TEX(v.uv, _BaseTex);
 				return o;
 			}
@@ -155,13 +161,13 @@ Shader "Losket/BurnOverlay"
 				// _Spread <= 0.01 le desactive : un depot fige (poussiere) ne
 				// doit pas dependre de la geometrie actuelle. ---
 				if (_Spread > 0.01) {
-					float proj = saturate((dot(i.oPos, dl) - _FlowMin) / max(_FlowRange, 1e-4));
+					float proj = saturate((dot(i.sPos, dl) - _FlowMin) / max(_FlowRange, 1e-4));
 					mask *= pow(proj, _Spread);
 				}
 
 				// --- Motif taches : bruit isotrope, legerement etire. Trois
 				// octaves decalees pour casser la grille sur les grandes pieces. ---
-				float3 p = i.oPos * _NoiseScale;
+				float3 p = i.sPos * _NoiseScale;
 				float3 pb = p - dl * dot(p, dl) * (1.0 - 1.0 / _Streak);
 				float blob = vnoise(pb) * 0.5
 				           + vnoise(pb * 2.63 + 17.3) * 0.32
@@ -180,8 +186,8 @@ Shader "Losket/BurnOverlay"
 				// residuelle : theta = ±pi, face abritee, masque deja nul.
 				float3 spineA = normalize(_SpineAxisO.xyz);
 				float3 sideA = normalize(cross(dl, spineA));
-				float h = dot(i.oPos, spineA);                    // position le long de la colonne
-				float3 rp = i.oPos - spineA * h;
+				float h = dot(i.sPos, spineA);                    // position le long de la colonne
+				float3 rp = i.sPos - spineA * h;
 				float theta = atan2(dot(rp, sideA), dot(rp, dl)); // 0 = face au vent
 				float w = theta * max(length(rp), 0.05);          // arc lateral signe
 				float hh = h - abs(w) * _SlantAft;                // derive aval en s'ecartant

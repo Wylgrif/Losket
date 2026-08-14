@@ -50,6 +50,29 @@ namespace Losket
 		[KSPField(isPersistant = true)] public float peakSkinTemp;
 		[KSPField(isPersistant = true)] public Vector3 dirAccum = Vector3.zero;
 
+		// --- Repere motif persistant ---
+		// Position et orientation de la piece dans le repere du vaisseau,
+		// capturees UNE FOIS au premier vol puis figees : le motif de bruit y
+		// est echantillonne, donc continu entre pieces voisines (meme repere
+		// capture) et definitivement colle a la piece. Un docking ulterieur ne
+		// change rien : chaque vaisseau garde le repere qu'il a capture, la
+		// seule couture est au port d'amarrage — les deux ont brule separement.
+
+		[KSPField(isPersistant = true)] public bool patternFrameSet;
+		[KSPField(isPersistant = true)] public Vector3 patternFramePos = Vector3.zero;
+		[KSPField(isPersistant = true)] public Quaternion patternFrameRot = Quaternion.identity;
+
+		// Fenetre du gradient d'etalement, en espace motif, a l'echelle du
+		// vaisseau ENTIER : sans elle, chaque maillage refait son degrade de son
+		// propre bord au vent a son propre bord oppose, et les joints font des
+		// marches d'escalier. Recalculee pendant que la piece accumule (le depot
+		// est en cours, son evolution est physique), figee des que la brulure
+		// s'arrete : ni scintillement, ni saut au staging ou au docking.
+		// Negatif = jamais calculee (repli : fenetre du maillage).
+
+		[KSPField(isPersistant = true)] public float patternWindowMin;
+		[KSPField(isPersistant = true)] public float patternWindowRange = -1f;
+
 		// --- Interface utilisateur ---
 
 		/// <summary>Cle stable, vide = suivre le defaut des reglages de partie.</summary>
@@ -84,6 +107,39 @@ namespace Losket
 		private LosketOverlayRig rig;
 		private Shader shader;
 		private bool editorPreview;
+
+		// Voisins directs (parent + enfants) porteurs du module, pour lisser la
+		// teinte du revenu. Rafraichi periodiquement : l'arbre de pieces change
+		// au staging et au docking.
+		private readonly System.Collections.Generic.List<ModuleLosketBurn> neighbours =
+			new System.Collections.Generic.List<ModuleLosketBurn>();
+		private int neighboursFrame = -1000;
+
+		/// <summary>Matrice piece -> repere motif, pour ce module et la poussiere.</summary>
+		public Matrix4x4 PatternMatrix
+		{
+			get
+			{
+				return patternFrameSet
+					? Matrix4x4.TRS(patternFramePos, patternFrameRot, Vector3.one)
+					: Matrix4x4.identity;
+			}
+		}
+
+		/// <summary>
+		/// Capture le repere du vaisseau si ce n'est pas deja fait. Appelee
+		/// avant tout rendu en vol ; sans effet une fois la capture posee.
+		/// </summary>
+		public void EnsurePatternFrame()
+		{
+			if (patternFrameSet || vessel == null || vessel.rootPart == null) {
+				return;
+			}
+			var root = vessel.rootPart.transform;
+			patternFramePos = root.InverseTransformPoint(part.transform.position);
+			patternFrameRot = Quaternion.Inverse(root.rotation) * part.transform.rotation;
+			patternFrameSet = true;
+		}
 
 		public bool BurnEnabled
 		{
@@ -262,6 +318,54 @@ namespace Losket
 
 			dirAccum += flowPart * dq;
 			dose += dq;
+
+			if (++windowTick >= 30) {
+				windowTick = 0;
+				RecomputePatternWindow();
+			}
+		}
+
+		private int windowTick;
+
+		/// <summary>
+		/// Projette toutes les pieces du vaisseau sur l'axe du flux, dans
+		/// l'espace motif de CETTE piece, et memorise les bornes. Appelee
+		/// uniquement pendant l'accumulation : la fenetre est figee ensuite.
+		/// </summary>
+		private void RecomputePatternWindow()
+		{
+			EnsurePatternFrame();
+			if (!patternFrameSet || dirAccum.sqrMagnitude < 1e-6f) {
+				return;
+			}
+
+			var toPattern = PatternMatrix * part.transform.worldToLocalMatrix;
+			var dirPattern = PatternMatrix.MultiplyVector(dirAccum.normalized).normalized;
+
+			var lo = float.MaxValue;
+			var hi = float.MinValue;
+			var parts = vessel.parts;
+			for (var i = 0; i < parts.Count; i++) {
+				var other = parts[i];
+				if (other == null) {
+					continue;
+				}
+				var d = Vector3.Dot(
+					toPattern.MultiplyPoint3x4(other.transform.position), dirPattern);
+				if (d < lo) {
+					lo = d;
+				}
+				if (d > hi) {
+					hi = d;
+				}
+			}
+			if (lo > hi) {
+				return;
+			}
+
+			const float margin = 1.5f;
+			patternWindowMin = lo - margin;
+			patternWindowRange = hi - lo + 2f * margin;
 		}
 
 		private void LateUpdate()
@@ -300,15 +404,62 @@ namespace Losket
 				? dirAccum.normalized
 				: Vector3.down;
 
+			EnsurePatternFrame();
+
 			var p = StyleParams();
+			p.PartToPattern = PatternMatrix;
+			if (patternWindowRange > 0f) {
+				p.UsePatternWindow = true;
+				p.PatternWindowMin = patternWindowMin;
+				p.PatternWindowRange = patternWindowRange;
+			}
 			p.WorldFlowDir = part.transform.TransformDirection(flowPart);
 			p.BurnMag = mag;
 			p.PeakTemp = temperIntensity *
-				Mathf.Clamp01((peakSkinTemp - temperMin) / (temperMax - temperMin));
+				Mathf.Clamp01((SmoothedPeakTemp() - temperMin) / (temperMax - temperMin));
 			p.Wrap = Mathf.Lerp(2f, 1.3f, dirStrength);
 			p.DirPower = Mathf.Lerp(0.5f, 1.5f, dirStrength);
 
 			rig.Apply(p);
+		}
+
+		/// <summary>
+		/// Temperature de pointe lissee avec les pieces attachees (40 % soi,
+		/// 60 % moyenne du voisinage, soi compris). La simulation thermique de
+		/// KSP donne des pics differents a des pieces voisines : sans lissage,
+		/// la teinte du revenu fait des bandes nettes aux joints alors que le
+		/// motif, lui, est continu. Rendu uniquement — l'etat persiste reste le
+		/// pic reel de la piece.
+		/// </summary>
+		private float SmoothedPeakTemp()
+		{
+			if (Time.frameCount - neighboursFrame >= 60) {
+				neighboursFrame = Time.frameCount;
+				neighbours.Clear();
+				if (part.parent != null) {
+					var m = part.parent.FindModuleImplementing<ModuleLosketBurn>();
+					if (m != null) {
+						neighbours.Add(m);
+					}
+				}
+				for (var i = 0; i < part.children.Count; i++) {
+					var m = part.children[i].FindModuleImplementing<ModuleLosketBurn>();
+					if (m != null) {
+						neighbours.Add(m);
+					}
+				}
+			}
+
+			var sum = peakSkinTemp;
+			var n = 1;
+			for (var i = 0; i < neighbours.Count; i++) {
+				var m = neighbours[i];
+				if (m != null) {
+					sum += m.peakSkinTemp;
+					n++;
+				}
+			}
+			return 0.4f * peakSkinTemp + 0.6f * (sum / n);
 		}
 
 		/// <summary>Apercu editeur : brulure representative avec le style courant.</summary>

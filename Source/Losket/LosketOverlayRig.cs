@@ -30,16 +30,22 @@ namespace Losket
 		public int RenderQueue;
 
 		/// <summary>
-		/// Si vrai, le gradient le long du flux utilise une fenetre exprimee en
-		/// PROJECTION MONDE ([WorldFlowMin, WorldFlowMin + WorldFlowRange] le
-		/// long de WorldFlowDir) au lieu des bornes du maillage de chaque piece.
-		/// C'est ce qui rend le degrade continu entre pieces empilees : chaque
-		/// piece lit sa fraction de la meme rampe vaisseau, au lieu de repartir
-		/// de zero a son propre bord.
+		/// Repere "motif" de la piece : transformation piece -> repere du
+		/// vaisseau capture au premier vol (identite dans l'editeur). Le bruit y
+		/// est echantillonne, ce qui le rend continu entre pieces voisines et
+		/// insensible au vol, au staging et au docking.
 		/// </summary>
-		public bool UseWorldWindow;
-		public float WorldFlowMin;
-		public float WorldFlowRange;
+		public Matrix4x4 PartToPattern;
+
+		/// <summary>
+		/// Fenetre du gradient d'etalement en espace motif, a l'echelle du
+		/// vaisseau, calculee et figee par le module pendant l'accumulation.
+		/// Si UsePatternWindow est faux, repli sur les bornes du maillage
+		/// (previsualisation, anciennes sauvegardes jamais rebrulees).
+		/// </summary>
+		public bool UsePatternWindow;
+		public float PatternWindowMin;
+		public float PatternWindowRange;
 
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
@@ -58,6 +64,7 @@ namespace Losket
 				Bleach = 0f,
 				DepositColor = new Color(0.06f, 0.055f, 0.05f),
 				RenderQueue = 0,
+				PartToPattern = Matrix4x4.identity,
 			};
 		}
 	}
@@ -79,6 +86,7 @@ namespace Losket
 		private readonly List<Bounds> meshBounds = new List<Bounds>();
 		private readonly string ownerId;
 		private readonly string overlayName;
+		private Transform partTransform;
 
 		public int Count { get { return overlays.Count; } }
 
@@ -102,6 +110,7 @@ namespace Losket
 			string overlayName = OverlayName)
 		{
 			var rig = new LosketOverlayRig(ownerId, overlayName);
+			rig.partTransform = part.transform;
 
 			var stale = 0;
 			foreach (var t in part.GetComponentsInChildren<Transform>(true)) {
@@ -119,6 +128,13 @@ namespace Losket
 				// Ne jamais dupliquer un overlay Losket, le sien ou celui d'un
 				// autre rig de la meme piece.
 				if (source.name == OverlayName || source.name == DustOverlayName) {
+					continue;
+				}
+				// Effets lumineux : flares de lampes, flammes et lueurs de
+				// moteurs. Ce sont des maillages comme les autres sous le modele,
+				// mais rien ne se depose sur de la lumiere. Reconnus par leur
+				// shader (additif / particules / non eclaire) ou leur nom.
+				if (IsLightEffect(source)) {
 					continue;
 				}
 
@@ -217,55 +233,61 @@ namespace Losket
 					r.sharedMaterials = materialSlots[i];
 				}
 
-				var objDir = r.transform.InverseTransformDirection(p.WorldFlowDir).normalized;
 				var b = meshBounds[i];
 
-				// Fenetre du gradient positionnel. Deux modes :
-				//  - fenetre vaisseau (continuite entre pieces) : la fenetre
-				//    monde est convertie dans l'espace objet de cet overlay via
-				//    dot(posMonde, dir) = s*dot(posObjet, dirObjet) + dot(t, dir) ;
-				//  - fenetre maillage (previsualisation d'une piece isolee).
+				// Tout le motif (bruit, gradient, carte des stries) est calcule
+				// dans l'espace "motif" : le repere du vaisseau capture au
+				// premier vol de la piece (p.PartToPattern, identite dans
+				// l'editeur). C'est ce qui rend le motif continu entre pieces
+				// voisines, fige quel que soit le vol, et sans surprise au
+				// docking : chaque vaisseau conserve le repere qu'il a capture,
+				// la seule couture est au port d'amarrage.
+				var objToPattern = p.PartToPattern *
+					partTransform.worldToLocalMatrix * r.transform.localToWorldMatrix;
+				var dirPattern = p.PartToPattern.MultiplyVector(
+					partTransform.InverseTransformDirection(p.WorldFlowDir)).normalized;
+
+				// Fenetre du gradient positionnel : celle du vaisseau entier si
+				// le module l'a figee (continuite aux joints), sinon l'AABB du
+				// maillage projete sur l'axe du flux, en espace motif.
 				float flowMin, flowRange;
-				if (p.UseWorldWindow) {
-					var s = r.transform.lossyScale.x;
-					if (Mathf.Abs(s) < 1e-4f) {
-						s = 1f;
-					}
-					var t = Vector3.Dot(r.transform.position, p.WorldFlowDir);
-					flowMin = (p.WorldFlowMin - t) / s;
-					flowRange = p.WorldFlowRange / s;
+				if (p.UsePatternWindow) {
+					flowMin = p.PatternWindowMin;
+					flowRange = p.PatternWindowRange;
 				} else {
-					var center = Vector3.Dot(b.center, objDir);
-					var extent = Mathf.Abs(b.extents.x * objDir.x) +
-					             Mathf.Abs(b.extents.y * objDir.y) +
-					             Mathf.Abs(b.extents.z * objDir.z);
-					flowMin = center - extent;
-					flowRange = 2f * extent;
+					var centerP = objToPattern.MultiplyPoint3x4(b.center);
+					var extentP =
+						Mathf.Abs(Vector3.Dot(dirPattern, objToPattern.MultiplyVector(new Vector3(b.extents.x, 0f, 0f)))) +
+						Mathf.Abs(Vector3.Dot(dirPattern, objToPattern.MultiplyVector(new Vector3(0f, b.extents.y, 0f)))) +
+						Mathf.Abs(Vector3.Dot(dirPattern, objToPattern.MultiplyVector(new Vector3(0f, 0f, b.extents.z))));
+					flowMin = Vector3.Dot(centerP, dirPattern) - extentP;
+					flowRange = 2f * extentP;
 				}
 
 				// Axe de la colonne vertebrale : la plus grande dimension du
-				// maillage, debarrassee de sa composante le long du flux. C'est
-				// la ligne de stagnation d'un corps allonge frappe de biais. La
-				// composante axiale du flux donne la derive des stries vers
-				// l'aval. Si le flux est parallele a l'axe de coque (rentree
-				// pointe en avant), l'axe de colonne est degenere : on prend une
-				// perpendiculaire quelconque, stable.
-				var hullAxis = LongestAxis(b.size);
-				var axial = Vector3.Dot(objDir, hullAxis);
-				var spine = hullAxis - objDir * axial;
+				// maillage, portee en espace motif et debarrassee de sa
+				// composante le long du flux. C'est la ligne de stagnation d'un
+				// corps allonge frappe de biais ; la composante axiale du flux
+				// donne la derive des stries vers l'aval. Si le flux est
+				// parallele a l'axe de coque, on prend une perpendiculaire
+				// quelconque, stable.
+				var hullAxis = objToPattern.MultiplyVector(LongestAxis(b.size)).normalized;
+				var axial = Vector3.Dot(dirPattern, hullAxis);
+				var spine = hullAxis - dirPattern * axial;
 				float slant;
 				if (spine.sqrMagnitude < 1e-4f) {
-					spine = Mathf.Abs(objDir.y) < 0.9f
-						? Vector3.Cross(objDir, Vector3.up)
-						: Vector3.Cross(objDir, Vector3.right);
+					spine = Mathf.Abs(dirPattern.y) < 0.9f
+						? Vector3.Cross(dirPattern, Vector3.up)
+						: Vector3.Cross(dirPattern, Vector3.right);
 					slant = 0f;
 				} else {
 					slant = axial * 0.5f;
 				}
 				spine.Normalize();
 
+				m.SetMatrix("_ObjToPattern", objToPattern);
 				m.SetVector("_BurnDirW", p.WorldFlowDir);
-				m.SetVector("_BurnDirO", objDir);
+				m.SetVector("_BurnDirO", dirPattern);
 				m.SetVector("_SpineAxisO", spine);
 				m.SetFloat("_SlantAft", slant);
 				m.SetFloat("_FlowMin", flowMin);
@@ -305,36 +327,25 @@ namespace Losket
 			meshBounds.Clear();
 		}
 
-		/// <summary>
-		/// Fenetre de projection de tout le vaisseau le long d'une direction
-		/// monde : bornes des positions de pieces, elargies d'une marge pour
-		/// couvrir leurs maillages. Sert au gradient continu entre pieces.
-		/// </summary>
-		public static void ComputeVesselWindow(Vessel vessel, Vector3 worldDir,
-			out float min, out float range)
+		private static bool IsLightEffect(Renderer source)
 		{
-			const float margin = 1.5f;
-			var lo = float.MaxValue;
-			var hi = float.MinValue;
-			for (var i = 0; i < vessel.parts.Count; i++) {
-				var p = vessel.parts[i];
-				if (p == null) {
-					continue;
-				}
-				var d = Vector3.Dot(p.transform.position, worldDir);
-				if (d < lo) {
-					lo = d;
-				}
-				if (d > hi) {
-					hi = d;
-				}
+			var name = source.name;
+			if (name.IndexOf("flare", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			    name.IndexOf("flame", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			    name.IndexOf("plume", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			    name.IndexOf("glow", StringComparison.OrdinalIgnoreCase) >= 0) {
+				return true;
 			}
-			if (lo > hi) {
-				lo = 0f;
-				hi = 0f;
+
+			var material = source.sharedMaterial;
+			if (material == null || material.shader == null) {
+				return false;
 			}
-			min = lo - margin;
-			range = hi - lo + 2f * margin;
+			var shaderName = material.shader.name;
+			return shaderName.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Additive", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Unlit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Distortion", StringComparison.OrdinalIgnoreCase) >= 0;
 		}
 
 		private static Vector3 LongestAxis(Vector3 size)
