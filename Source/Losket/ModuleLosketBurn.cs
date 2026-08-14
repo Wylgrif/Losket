@@ -180,6 +180,10 @@ namespace Losket
 				? LosketBootstrap.GetShader("Losket/BurnOverlay")
 				: null;
 
+			// Le diagnostic de rendu suit l'option "Curseurs de developpement".
+			var settings = LosketSettings.Instance;
+			Events["DumpRenderState"].guiActive = settings != null && settings.interfaceDev;
+
 			if (HighLogic.LoadedSceneIsFlight) {
 				// Remise a zero au pre-lancement : un vaisseau qui part du pas de
 				// tir est toujours propre. C'est aussi la garantie "recuperation
@@ -260,6 +264,50 @@ namespace Losket
 		public void OpenStyleWindow()
 		{
 			LosketStyleWindow.Open(this);
+		}
+
+		/// <summary>
+		/// Diagnostic de rendu par piece (option "Curseurs de developpement").
+		/// Nomme, pour chaque overlay, le renderer d'origine et son shader :
+		/// c'est ce qui permet d'identifier a distance une piece dont l'overlay
+		/// est eteint par le masque alpha ou saute par le filtre d'effets
+		/// lumineux.
+		/// </summary>
+		[KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "Journaliser (Losket)",
+			groupName = Group, groupDisplayName = GroupTitle)]
+		public void DumpRenderState()
+		{
+			var id = part.partInfo.name + "#" + GetInstanceID();
+			LosketBootstrap.Log("=== DumpRenderState " + id + " ===");
+			LosketBootstrap.Log("  affectedBy=" + affectedBy + " dose=" + dose.ToString("0") +
+				" mag=" + BurnMag.ToString("0.00") +
+				" peak=" + peakSkinTemp.ToString("0") + "K" +
+				" dirStrength=" + (dose > 0f ? (dirAccum.magnitude / dose).ToString("0.00") : "n/a") +
+				" fenetre=[" + patternWindowMin.ToString("0.0") + ", +" +
+				patternWindowRange.ToString("0.0") + "]");
+			if (rig == null) {
+				LosketBootstrap.Log("  (pas de rig)");
+				return;
+			}
+			for (var i = 0; i < rig.Count; i++) {
+				var r = rig.Overlays[i];
+				if (r == null) {
+					LosketBootstrap.Log("  overlay[" + i + "] DETRUIT");
+					continue;
+				}
+				var m = rig.Materials[i];
+				var srcName = r.transform.parent != null ? r.transform.parent.name : "?";
+				var srcRenderer = r.transform.parent != null
+					? r.transform.parent.GetComponent<MeshRenderer>() : null;
+				var srcShader = srcRenderer != null && srcRenderer.sharedMaterial != null &&
+				                srcRenderer.sharedMaterial.shader != null
+					? srcRenderer.sharedMaterial.shader.name : "?";
+				LosketBootstrap.Log("  overlay[" + i + "] source='" + srcName +
+					"' shaderBase='" + srcShader +
+					"' useBaseAlpha=" + m.GetFloat("_UseBaseAlpha").ToString("0") +
+					" visible=" + r.isVisible +
+					" _BurnMag=" + m.GetFloat("_BurnMag").ToString("0.00"));
+			}
 		}
 
 		[KSPEvent(guiActiveEditor = true, guiName = "#LOC_Losket_PreviewShow",

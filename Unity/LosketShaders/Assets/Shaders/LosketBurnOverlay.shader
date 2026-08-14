@@ -162,7 +162,16 @@ Shader "Losket/BurnOverlay"
 				// doit pas dependre de la geometrie actuelle. ---
 				if (_Spread > 0.01) {
 					float proj = saturate((dot(i.sPos, dl) - _FlowMin) / max(_FlowRange, 1e-4));
-					mask *= pow(proj, _Spread);
+					// Deux chauffes distinctes : l'ecoulement rasant, attenue en
+					// aval par le gradient, et la chauffe d'INCIDENCE locale —
+					// bords d'attaque des ailes, canards, derive, et toute
+					// surface oblique au flux — jamais attenuee par la position.
+					// Le profil smoothstep demarre des l'incidence faible et
+					// sature avant la perpendiculaire : bande large autour des
+					// bords d'attaque, incidences intermediaires bien nourries,
+					// seules les surfaces en incidence rasante restent epargnees.
+					float leading = smoothstep(0.05, 0.8, saturate(dot(n, dw)));
+					mask = saturate(mask * pow(proj, _Spread) + leading * 0.8);
 				}
 
 				// --- Motif taches : bruit isotrope, legerement etire. Trois
@@ -225,8 +234,14 @@ Shader "Losket/BurnOverlay"
 				fixed3 col = lerp(temper.rgb, deposit, soot);
 				float alpha = saturate(max(soot * 0.95, temperA));
 
-				// Pieces ajourees : rien ne se depose dans les trous.
-				alpha *= lerp(1.0, tex2D(_BaseTex, i.uv).a, _UseBaseAlpha);
+				// Pieces ajourees : rien ne se depose dans les trous. Decision
+				// SEUILLEE, comme le clip() du shader de base, et non multiplication
+				// par l'alpha brut : sur les shaders cutout, les zones pleines
+				// peuvent porter un alpha moyen (0.5-0.6, cas des ailes stock) qui
+				// attenuerait voire eteindrait le depot alors qu'elles sont
+				// parfaitement opaques a l'ecran.
+				float cutMask = smoothstep(0.25, 0.45, tex2D(_BaseTex, i.uv).a);
+				alpha *= lerp(1.0, cutMask, _UseBaseAlpha);
 
 				// Eclairage minimal : ambiante + directionnelle principale.
 				float ndl = saturate(dot(n, _WorldSpaceLightPos0.xyz));
