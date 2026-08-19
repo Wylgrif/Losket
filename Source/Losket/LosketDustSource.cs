@@ -133,7 +133,10 @@ namespace Losket
 			UpWorld = (vessel.transform.position - body.position).normalized;
 			VesselRef = vessel.CoM;
 			RadarAlt = alt;
-			ScaleHeight = Mathf.Max(4f, 40f / (1f + 6f * pressureAtm));
+			// Coefficient d'atmosphere releve apres essais : la poussiere montait
+			// trop haut sur les vaisseaux sous atmosphere. Kerbin ~3 m (au ras
+			// des tuyeres), Duna ~22 m, vide 40 m (projection balistique Apollo).
+			ScaleHeight = Mathf.Max(2.5f, 40f / (1f + 12f * pressureAtm));
 		}
 	}
 }

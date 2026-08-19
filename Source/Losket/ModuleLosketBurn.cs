@@ -463,8 +463,10 @@ namespace Losket
 			}
 			p.WorldFlowDir = part.transform.TransformDirection(flowPart);
 			p.BurnMag = mag;
-			p.PeakTemp = temperIntensity *
-				Mathf.Clamp01((SmoothedPeakTemp() - temperMin) / (temperMax - temperMin));
+			// La teinte du revenu vient de la vraie temperature de pointe ;
+			// l'irisation reglee par l'utilisateur ne joue que sur l'opacite.
+			p.PeakTemp = Mathf.Clamp01((SmoothedPeakTemp() - temperMin) / (temperMax - temperMin));
+			p.TemperGain = temperIntensity;
 			p.Wrap = Mathf.Lerp(2f, 1.3f, dirStrength);
 			p.DirPower = Mathf.Lerp(0.5f, 1.5f, dirStrength);
 
@@ -527,7 +529,8 @@ namespace Losket
 			var p = StyleParams();
 			p.WorldFlowDir = part.transform.TransformDirection(Vector3.down);
 			p.BurnMag = 0.65f;
-			p.PeakTemp = temperIntensity * 0.8f;
+			p.PeakTemp = 0.8f;
+			p.TemperGain = temperIntensity;
 			p.Wrap = 1.5f;
 			p.DirPower = 1.2f;
 			rig.Apply(p);

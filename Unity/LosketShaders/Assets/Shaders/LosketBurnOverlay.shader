@@ -38,6 +38,11 @@ Shader "Losket/BurnOverlay"
 
 		_BurnMag ("Intensite de brulure", Range(0, 1)) = 0.5
 		_PeakTemp ("Temperature de pointe (normalisee)", Range(0, 1)) = 0.65
+		// Visibilite du revenu. La TEINTE vient toujours de _PeakTemp via la
+		// LUT (physique) ; ce gain ne joue que sur l'opacite. Le multiplier a
+		// la temperature etait une erreur : il decalait la lecture de la LUT
+		// vers la bande jaune paille au lieu d'attenuer l'effet.
+		_TemperGain ("Visibilite du revenu", Range(0, 1)) = 1
 		_DirPower ("Concentration directionnelle", Range(0.2, 8)) = 2
 		_Spread ("Etalement le long du flux", Range(0.2, 8)) = 1.5
 		_Sharpness ("Nettete des bords", Range(0.5, 8)) = 2
@@ -92,7 +97,7 @@ Shader "Losket/BurnOverlay"
 			// pieces voisines, colle a chaque piece pour toujours, et insensible
 			// au docking (chaque vaisseau garde le repere qu'il a capture).
 			float4x4 _ObjToPattern;
-			float _BurnMag, _PeakTemp, _DirPower, _Spread, _Sharpness, _Streak;
+			float _BurnMag, _PeakTemp, _TemperGain, _DirPower, _Spread, _Sharpness, _Streak;
 			float _NoiseScale, _Pattern, _Bleach, _Wrap;
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;
 			float _FlowMin, _FlowRange, _SlantAft;
@@ -227,7 +232,8 @@ Shader "Losket/BurnOverlay"
 				float noise = lerp(blob, svn, saturate(_Pattern));
 				float lutU = saturate(_PeakTemp * (0.55 + 0.45 * mask) + 0.12 * (noise - 0.5));
 				fixed4 temper = tex2D(_TemperLut, float2(lutU, 0.5));
-				float temperA = temper.a * smoothstep(0.02, 0.25, mask * _BurnMag) * (1.0 - soot);
+				float temperA = temper.a * _TemperGain *
+					smoothstep(0.02, 0.25, mask * _BurnMag) * (1.0 - soot);
 
 				// --- Couleur du depot : suie noire ou trace blanchie ---
 				fixed3 deposit = lerp(_SootColor.rgb, fixed3(0.93, 0.91, 0.88), _Bleach);

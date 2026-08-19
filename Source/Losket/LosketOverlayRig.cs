@@ -12,6 +12,11 @@ namespace Losket
 
 		public float BurnMag;
 		public float PeakTemp;
+
+		/// <summary>Visibilite du revenu (opacite). La teinte, elle, vient
+		/// toujours de PeakTemp via la LUT : c'est la physique qui colore.</summary>
+		public float TemperGain;
+
 		public float DirPower;
 		public float Spread;
 		public float Wrap;
@@ -54,6 +59,7 @@ namespace Losket
 				WorldFlowDir = Vector3.down,
 				BurnMag = 0f,
 				PeakTemp = 0f,
+				TemperGain = 1f,
 				DirPower = 1.2f,
 				Spread = 2f,
 				Wrap = 1.4f,
@@ -294,6 +300,7 @@ namespace Losket
 				m.SetFloat("_FlowRange", flowRange);
 				m.SetFloat("_BurnMag", p.BurnMag);
 				m.SetFloat("_PeakTemp", p.PeakTemp);
+				m.SetFloat("_TemperGain", p.TemperGain);
 				m.SetFloat("_DirPower", p.DirPower);
 				m.SetFloat("_Spread", p.Spread);
 				m.SetFloat("_Wrap", p.Wrap);
