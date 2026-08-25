@@ -55,6 +55,12 @@ Shader "Losket/BurnOverlay"
 		// "remonte" sur les flancs inclines, comme sur Orion.
 		_Wrap ("Enveloppement du masque directionnel", Range(0, 2)) = 1.2
 
+		// Depot lateral : dans le vide, la poussiere est projetee en gerbe
+		// rasante (videos Apollo) et frappe les FLANCS, pas le dessous. A 1, le
+		// masque directionnel devient un anneau perpendiculaire a la direction
+		// d'arrivee. Alimente par la fraction de dose deposee dans le vide.
+		_RingMask ("Depot lateral (vide)", Range(0, 1)) = 0
+
 		// Renseignes par le module C# a chaque frame, pas par l'utilisateur.
 		_BurnDirW ("Direction du flux, espace monde", Vector) = (0, -1, 0, 0)
 		_BurnDirO ("Direction du flux, espace objet", Vector) = (0, -1, 0, 0)
@@ -98,7 +104,7 @@ Shader "Losket/BurnOverlay"
 			// au docking (chaque vaisseau garde le repere qu'il a capture).
 			float4x4 _ObjToPattern;
 			float _BurnMag, _PeakTemp, _TemperGain, _DirPower, _Spread, _Sharpness, _Streak;
-			float _NoiseScale, _Pattern, _Bleach, _Wrap;
+			float _NoiseScale, _Pattern, _Bleach, _Wrap, _RingMask;
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;
 			float _FlowMin, _FlowRange, _SlantAft;
 
@@ -160,6 +166,10 @@ Shader "Losket/BurnOverlay"
 
 				// --- Masque directionnel enveloppant ---
 				float facing = saturate((dot(n, dw) + _Wrap) / (1.0 + _Wrap));
+				// Gerbe rasante du vide : anneau sur les flancs, un peu de
+				// depot residuel dessus/dessous.
+				float ring = 1.0 - 0.8 * abs(dot(n, dw));
+				facing = lerp(facing, ring, _RingMask);
 				float mask = pow(facing, _DirPower);
 
 				// --- Gradient le long du flux : 1 au bord au vent, 0 a l'oppose.

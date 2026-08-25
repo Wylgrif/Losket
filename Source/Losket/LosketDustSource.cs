@@ -46,6 +46,13 @@ namespace Losket
 		/// </summary>
 		public float ScaleHeight { get; private set; }
 
+		/// <summary>
+		/// Part "gerbe rasante" du depot en cours : ~1 dans le vide (la
+		/// poussiere arrive a l'horizontale et frappe les flancs, cf. Apollo),
+		/// ~0 en atmosphere dense (elle tourbillonne et retombe de partout).
+		/// </summary>
+		public float RingFactor { get; private set; }
+
 		public override Activation GetActivation()
 		{
 			return Activation.LoadedVessels | Activation.FlightScene;
@@ -60,6 +67,14 @@ namespace Losket
 			}
 			var body = vessel.mainBody;
 			if (body == null || !body.hasSolidSurface || vessel.Splashed) {
+				return;
+			}
+
+			// Moteurs au-dessus de l'eau : de l'ecume, pas de la poussiere. Le
+			// drapeau ocean du corps couvre aussi les planetes moddees ; un
+			// terrain sous le niveau de la mer signifie que la surface sous le
+			// vaisseau est de l'eau.
+			if (body.ocean && vessel.terrainAltitude < 0) {
 				return;
 			}
 
@@ -137,6 +152,7 @@ namespace Losket
 			// trop haut sur les vaisseaux sous atmosphere. Kerbin ~3 m (au ras
 			// des tuyeres), Duna ~22 m, vide 40 m (projection balistique Apollo).
 			ScaleHeight = Mathf.Max(2.5f, 40f / (1f + 12f * pressureAtm));
+			RingFactor = 1f / (1f + 4f * pressureAtm);
 		}
 	}
 }

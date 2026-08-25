@@ -23,6 +23,10 @@ namespace Losket
 		[KSPField(isPersistant = true)] public Vector3 dirAccum = Vector3.zero;
 		[KSPField(isPersistant = true)] public Vector3 colorAccum = Vector3.zero;
 
+		/// <summary>Part de la dose deposee en gerbe rasante (vide). Un
+		/// atterrisseur qui a connu la Mun puis Kerbin garde le melange.</summary>
+		[KSPField(isPersistant = true)] public float ringAccum;
+
 		[KSPField(guiActive = true, guiName = "#LOC_Losket_DustAccum", guiFormat = "P0",
 			groupName = "Losket", groupDisplayName = "#LOC_Losket_Group")]
 		public float dustDisplay;
@@ -113,6 +117,7 @@ namespace Losket
 
 			dose += ddose;
 			dirAccum += downPart * ddose;
+			ringAccum += source.RingFactor * ddose;
 			var ground = source.GroundColor;
 			colorAccum += new Vector3(ground.r, ground.g, ground.b) * ddose;
 		}
@@ -179,6 +184,8 @@ namespace Losket
 			p.PeakTemp = 0f;                        // la poussiere ne chauffe pas
 			p.Pattern = 0f;                          // toujours en taches
 			p.Wrap = 1.7f;                           // elle se faufile partout
+			// Fraction du depot recue en gerbe rasante -> masque en anneau.
+			p.RingMask = dose > 0f ? Mathf.Clamp01(ringAccum / dose) : 0f;
 			p.DirPower = 0.8f;
 			p.Spread = 0f;                           // depot fige : pas de gradient au rendu
 			p.Sharpness = 1.2f;

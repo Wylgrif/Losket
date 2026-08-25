@@ -20,6 +20,10 @@ namespace Losket
 		public float DirPower;
 		public float Spread;
 		public float Wrap;
+
+		/// <summary>0 = masque directionnel ; 1 = anneau lateral (gerbe rasante
+		/// du vide, cf. Apollo). Fraction de la dose deposee dans le vide.</summary>
+		public float RingMask;
 		public float Sharpness;
 		public float Streak;
 		public float NoiseScale;
@@ -60,6 +64,7 @@ namespace Losket
 				BurnMag = 0f,
 				PeakTemp = 0f,
 				TemperGain = 1f,
+				RingMask = 0f,
 				DirPower = 1.2f,
 				Spread = 2f,
 				Wrap = 1.4f,
@@ -304,6 +309,7 @@ namespace Losket
 				m.SetFloat("_DirPower", p.DirPower);
 				m.SetFloat("_Spread", p.Spread);
 				m.SetFloat("_Wrap", p.Wrap);
+				m.SetFloat("_RingMask", p.RingMask);
 				m.SetFloat("_Sharpness", p.Sharpness);
 				m.SetFloat("_Streak", p.Streak);
 				m.SetFloat("_NoiseScale", p.NoiseScale);
