@@ -1,111 +1,94 @@
 # Losket
 
-Mod KSP 1.12.5 ajoutant des marques persistantes sur les pièces : brûlures de
-rentrée atmosphérique et poussière soulevée par les moteurs.
+Losket marks your craft with the flights it has been through. Re-entry scorches
+the surfaces that took the heat, and engines and rotors coat the hull in dust the
+colour of whatever you landed on. Both accumulate over a vessel's lifetime and
+are saved with it.
 
-## Environnement
+Nothing is scripted or randomised. Scorching follows the heat flux KSP already
+simulates, so the marks land where the vessel actually got hot, and the heat tint
+is read from a tempering colour table driven by peak temperature. Patterns run
+continuously across part boundaries instead of stopping at every joint.
 
-| Outil | Version | Emplacement |
-|---|---|---|
-| KSP (dev) | 1.12.5 build 03190 | `C:\KSPDev\KSP-1.12.5-Losket` |
-| KSP (test compat) | 1.12.5 + ~90 mods | install Steam |
-| Unity | 2019.4.18f1 | `C:\Program Files\Unity\Editor` |
-| .NET SDK | 8.0.424 | `C:\Program Files\dotnet` |
+<!-- Screenshots go here. Suggested: a re-entered spaceplane, a dusty Mun lander,
+     and the editor part menu with the preset dropdown open. -->
 
-L'install de dev ne contient que Squad, SquadExpansion, ModuleManager, Harmony
-et Shabby. Elle sert au développement quotidien. L'install Steam moddée sert
-uniquement aux tests de compatibilité (Deferred, TexturesUnlimited, Parallax…).
+## Requirements
 
-Pour pointer vers une autre install KSP, créer un `LocalSettings.props` à la
-racine (ignoré par git) :
+- KSP 1.12.0 to 1.12.5
+- ModuleManager
 
-```xml
-<Project>
-  <PropertyGroup>
-    <KSPRoot>D:\Mon\Autre\KSP</KSPRoot>
-  </PropertyGroup>
-</Project>
+No other dependencies.
+
+## Installation
+
+Copy the `GameData/Losket` folder from the release archive into your KSP
+`GameData` folder. To uninstall, delete that folder. Craft that were scorched
+will simply load clean.
+
+## Usage
+
+Losket adds a toolbar button in the space centre, the editor and in flight. It
+opens a small window with the global defaults. The same options also live in
+Settings > Difficulty > Losket.
+
+Everything else is per part, in the editor. Right-click a part and look for the
+Losket group:
+
+- Affected by — Nothing, Scorching, Dust, or Scorching and dust. Parts you will
+  never see, or that sit inside a fairing, can be set to Nothing to save the
+  work of rendering them.
+- Preset — the look of the deposit. Soot is matte black with soft edges. Metal
+  is lighter, sharper, and shows the full blue heat tint. Streaks is bleached
+  and elongated, closer to how Starship comes back.
+- Advanced settings — opens a window with the individual sliders: deposit
+  colour, heat tint, bleaching, sharpness, pattern scale, streak length, and a
+  blend between blotches and streaks. Touching any slider switches the preset to
+  Custom.
+- Preview scorching — shows the effect in the editor without flying.
+
+In flight the same group reports how much scorching and dust the part has
+accumulated, as a percentage.
+
+Defaults apply to newly placed parts only. Changing them does not touch parts
+that are already on the craft.
+
+## Dust colour
+
+Dust takes the colour of the ground below the vessel, from a table in
+`GameData/Losket/Configs/dust-colors.cfg` rather than by sampling the terrain —
+sampling would not match what the player sees once Parallax is installed. All
+stock bodies are covered. Bodies with no entry fall back to a neutral grey-brown.
+
+Planet packs can add their own bodies with a ModuleManager patch:
+
+```
+LOSKET_BODY_DUST { body = MyBody  color = 0.5, 0.4, 0.3 }
 ```
 
-## Arborescence
+How the dust lands depends on the atmosphere. In vacuum it is thrown out almost
+horizontally and hits the sides of the craft, as in the Apollo landing footage.
+In thick atmosphere it swirls and settles from every direction. A lander that
+has been to both keeps the mixture. Engines fired over water, launchpads,
+runways and other built surfaces raise nothing.
 
-```
-Losket/
-├─ Source/Losket/        code C# du plugin
-├─ Unity/LosketShaders/  projet Unity, uniquement pour compiler les shaders
-├─ GameData/Losket/      ce qui est copié dans KSP (sortie de build incluse)
-├─ Tools/                scripts de build et de lecture de log
-├─ Exemples/             références visuelles et cahier des charges
-└─ shabby/               copie de référence du dépôt Shabby
-```
+## Compatibility
 
-## Cycle de développement
+Tested against Deferred, Restock, TURD, TexturesUnlimited and Parallax, and
+against modded parts. Kerbals on EVA, asteroids and comets are excluded.
 
-### Code C#
+Parts are inert until they take their first flux, so a clean craft costs nothing.
 
-```bash
-powershell -File Tools/build.ps1 -Run
-```
+## Languages
 
-Compile, copie `GameData/Losket` dans l'install de dev, et lance KSP. Sans
-`-Run`, le jeu n'est pas démarré. La DLL est produite directement dans
-`GameData/Losket/Plugins/Losket.dll`.
+English, French and Simplified Chinese. Adding a language means duplicating a
+block in `GameData/Losket/Localization/losket.cfg` and translating it; no code
+changes are involved.
 
-### Shaders
+## Building from source
 
-1. Ouvrir `Unity/LosketShaders` dans Unity 2019.4.18f1.
-2. Menu **Losket > Configurer le projet** (une seule fois, après le premier
-   ouverture du projet).
-3. Menu **Losket > Compiler le bundle de shaders** (`Ctrl+Shift+B`).
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-Le bundle est écrit dans `GameData/Losket/Shaders/Losket.shaderbundle`. Il faut
-ensuite relancer `Tools/build.ps1` pour le déployer.
+## License
 
-### Lire les logs
-
-```bash
-powershell -File Tools/logtail.ps1
-```
-
-Filtre `KSP.log` sur `[Losket]` et les exceptions. `-Follow` suit le fichier en
-direct pendant que le jeu tourne.
-
-## Notes techniques
-
-**Chargement du bundle.** Le bundle utilise l'extension `.shaderbundle` et non
-`.shab`, et il est chargé par `LosketBootstrap` avec `AssetBundle.LoadFromFile`.
-Passer par Shabby est possible mais crée un conflit : Shabby enregistre un
-chargeur pour `.shab`, et Unity refuse qu'un même fichier soit chargé deux fois
-en tant qu'AssetBundle. Charger nous-mêmes supprime aussi toute dépendance
-obligatoire à Shabby.
-
-**Ne pas alléger `Packages/manifest.json`.** Le projet Unity doit conserver le
-manifeste par défaut d'Unity 2019.4 et ses 38 modules. Un manifeste réduit
-produit un AssetBundle d'apparence parfaitement valide — en-tête UnityFS
-correct, version de sérialisation 21, cible `StandaloneWindows64`, mêmes
-dépendances externes qu'un bundle qui fonctionne — que KSP refuse ensuite avec
-un message trompeur :
-
-> The AssetBundle … could not be loaded because it is not compatible with this
-> newer version of the Unity runtime.
-
-Le module critique est `com.unity.modules.assetbundle`. `BuildBundle` vérifie
-désormais sa présence avant de compiler et refuse de produire un bundle sans
-lui. Aucun symptôme n'apparaît côté Unity : le projet s'ouvre, le shader
-compile, le build réussit.
-
-**Espace colorimétrique.** `PlayerSettings.colorSpace` du projet Unity doit
-correspondre à celui de KSP. KSP 1.12.5 tourne en **Gamma** (vérifié dans le
-journal de démarrage), le projet est réglé en conséquence. La valeur réelle est
-journalisée à chaque lancement par `LosketBootstrap`.
-
-**Où lire les journaux.** KSP écrit dans `KSP.log` à la racine du jeu *et* dans
-`%USERPROFILE%\AppData\LocalLow\Squad\Kerbal Space Program\Player.log`. Le
-premier peut rester figé sur une ancienne session ; `Tools/logtail.ps1` prend
-automatiquement le plus récent des deux et affiche lequel il a retenu. Tant que
-le jeu tient un journal ouvert, ni sa taille ni sa date d'entrée de répertoire
-ne sont rafraîchies — il faut lire le flux, pas les métadonnées.
-
-**APIs graphiques.** Le bundle est compilé pour Direct3D11 et OpenGLCore. Sans
-OpenGLCore, les shaders apparaissent en magenta pour les joueurs qui lancent KSP
-avec `-force-glcore`.
+MIT. See [LICENSE](LICENSE).

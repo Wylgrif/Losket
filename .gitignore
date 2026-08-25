@@ -33,5 +33,10 @@ Unity/*/*.sln
 Thumbs.db
 desktop.ini
 
-# --- Reference externe (decompressee depuis le zip, pas versionnee) ---
-shabby/Shabby-main/
+# --- Reference externe (Shabby est en GPLv3, on ne le redistribue pas) ---
+shabby/
+
+# --- Materiel de travail : references visuelles, captures brutes, essais ---
+# Contient des photos de tiers (SpaceX, NASA) qui n'ont rien a faire dans un
+# depot publie. Les captures destinees au README vivent dans docs/images/.
+Exemples/
