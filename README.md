@@ -5,8 +5,8 @@ the surfaces that took the heat, and engines and rotors coat the hull in dust th
 colour of whatever you landed on. Both accumulate over a vessel's lifetime and
 are saved with it.
 
-<!-- Screenshots go here. Suggested: a re-entered spaceplane, a dusty Mun lander,
-     and the editor part menu with the preset dropdown open. -->
+![ModShowcase](./docs/images/Losket.png)
+
 
 ## Requirements
 
