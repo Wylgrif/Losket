@@ -5,11 +5,6 @@ the surfaces that took the heat, and engines and rotors coat the hull in dust th
 colour of whatever you landed on. Both accumulate over a vessel's lifetime and
 are saved with it.
 
-Nothing is scripted or randomised. Scorching follows the heat flux KSP already
-simulates, so the marks land where the vessel actually got hot, and the heat tint
-is read from a tempering colour table driven by peak temperature. Patterns run
-continuously across part boundaries instead of stopping at every joint.
-
 <!-- Screenshots go here. Suggested: a re-entered spaceplane, a dusty Mun lander,
      and the editor part menu with the preset dropdown open. -->
 
@@ -17,8 +12,6 @@ continuously across part boundaries instead of stopping at every joint.
 
 - KSP 1.12.0 to 1.12.5
 - ModuleManager
-
-No other dependencies.
 
 ## Installation
 
@@ -56,8 +49,7 @@ that are already on the craft.
 ## Dust colour
 
 Dust takes the colour of the ground below the vessel, from a table in
-`GameData/Losket/Configs/dust-colors.cfg` rather than by sampling the terrain —
-sampling would not match what the player sees once Parallax is installed. All
+`GameData/Losket/Configs/dust-colors.cfg` rather than by sampling the terrain. All
 stock bodies are covered. Bodies with no entry fall back to a neutral grey-brown.
 
 Planet packs can add their own bodies with a ModuleManager patch:
@@ -67,17 +59,15 @@ LOSKET_BODY_DUST { body = MyBody  color = 0.5, 0.4, 0.3 }
 ```
 
 How the dust lands depends on the atmosphere. In vacuum it is thrown out almost
-horizontally and hits the sides of the craft, as in the Apollo landing footage.
+horizontally and hits the sides of the craft.
 In thick atmosphere it swirls and settles from every direction. A lander that
 has been to both keeps the mixture. Engines fired over water, launchpads,
 runways and other built surfaces raise nothing.
 
 ## Compatibility
 
-Tested against Deferred, Restock, TURD, TexturesUnlimited and Parallax, and
-against modded parts. Kerbals on EVA, asteroids and comets are excluded.
-
-Parts are inert until they take their first flux, so a clean craft costs nothing.
+Tested against Deferred, Restock, TURD and TexturesUnlimited, and
+against modded parts.
 
 ## Languages
 
@@ -87,8 +77,4 @@ changes are involved.
 
 ## Building from source
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
