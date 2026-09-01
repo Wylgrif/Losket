@@ -140,10 +140,14 @@ namespace Losket
 				return;
 			}
 
-			if (rig == null) {
-				if (shader == null) {
-					return;
-				}
+			if (shader == null) {
+				return;
+			}
+			// Meme recensement que la brulure : les coiffes procedurales et
+			// autres maillages generes au runtime sont rattrapes des qu'ils
+			// apparaissent, et les panneaux largues partent avec leur poussiere.
+			if (rig == null ||
+			    ((Time.frameCount + (GetInstanceID() & 0xFF)) % 60 == 0 && rig.IsStale(part))) {
 				rig = LosketOverlayRig.Create(part, shader,
 					part.partInfo.name + "#" + GetInstanceID() + " (poussiere)",
 					LosketOverlayRig.DustOverlayName);

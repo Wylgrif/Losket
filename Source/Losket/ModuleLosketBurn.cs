@@ -437,10 +437,18 @@ namespace Losket
 				return;
 			}
 
-			if (rig == null) {
-				if (shader == null) {
-					return;
-				}
+			if (shader == null) {
+				return;
+			}
+
+			// Recensement : les coiffes procedurales (et tout maillage genere au
+			// runtime) naissent et renaissent APRES notre scan initial. On
+			// verifie periodiquement, en etale sur les pieces, que la geometrie
+			// couverte est toujours la bonne, et on reconstruit sinon. Les
+			// overlays partis sur des panneaux largues ne sont plus sous la
+			// piece : ils survivent et emportent leurs marques.
+			if (rig == null ||
+			    ((Time.frameCount + (GetInstanceID() & 0xFF)) % 60 == 0 && rig.IsStale(part))) {
 				rig = LosketOverlayRig.Create(part, shader,
 					part.partInfo.name + "#" + GetInstanceID() + " (vol)");
 			}
@@ -515,13 +523,13 @@ namespace Losket
 		/// <summary>Apercu editeur : brulure representative avec le style courant.</summary>
 		private void EditorPreviewUpdate()
 		{
-			if (!editorPreview) {
+			if (!editorPreview || shader == null) {
 				return;
 			}
-			if (rig == null) {
-				if (shader == null) {
-					return;
-				}
+			// Meme recensement qu'en vol : une coiffe redessinee dans l'editeur
+			// regenere ses panneaux, l'apercu doit suivre.
+			if (rig == null ||
+			    ((Time.frameCount + (GetInstanceID() & 0xFF)) % 60 == 0 && rig.IsStale(part))) {
 				rig = LosketOverlayRig.Create(part, shader,
 					part.partInfo.name + "#" + GetInstanceID() + " (apercu)");
 			}

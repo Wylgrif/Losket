@@ -111,11 +111,75 @@ namespace Losket
 		}
 
 		/// <summary>
-		/// Cree les overlays d'une piece. Purge d'abord tout overlay du meme nom :
-		/// l'editeur clone des GameObjects vivants (symetrie, copie alt+clic) et
-		/// ces orphelins resteraient pilotes par les materiaux d'une autre piece.
-		/// La purge est limitee a son propre nom pour que les rigs de brulure et
-		/// de poussiere d'une meme piece cohabitent.
+		/// Recense les renderers eligibles d'une piece : toute la hierarchie (et
+		/// pas seulement le noeud model, ou les coiffes procedurales n'habitent
+		/// pas), moins les drapeaux, les overlays Losket, les effets lumineux,
+		/// les maillages absents — et les renderers des pieces ENFANTS, qui sont
+		/// imbriquees dans le transform du parent dans l'editeur.
+		/// L'ordre de parcours est deterministe : la comparaison de peremption
+		/// peut se faire element a element.
+		/// </summary>
+		public static void CollectEligible(Part part, List<MeshRenderer> result)
+		{
+			result.Clear();
+			foreach (var source in part.GetComponentsInChildren<MeshRenderer>(false)) {
+				if (source == null) {
+					continue;
+				}
+				if (source.name == OverlayName || source.name == DustOverlayName) {
+					continue;
+				}
+				// Le drapeau de mission a son propre systeme de decalque.
+				if (source.name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0) {
+					continue;
+				}
+				// Effets lumineux : flares de lampes, flammes et lueurs de
+				// moteurs. Rien ne se depose sur de la lumiere.
+				if (IsLightEffect(source)) {
+					continue;
+				}
+				var filter = source.GetComponent<MeshFilter>();
+				if (filter == null || filter.sharedMesh == null) {
+					continue;
+				}
+				if (source.GetComponentInParent<Part>() != part) {
+					continue;
+				}
+				result.Add(source);
+			}
+		}
+
+		private static readonly List<MeshRenderer> censusScratch = new List<MeshRenderer>();
+
+		/// <summary>
+		/// Vrai si la geometrie de la piece a change depuis la creation du rig :
+		/// coiffe (re)construite, panneau largue, maillage procedural regenere.
+		/// Le proprietaire recree alors le rig ; les overlays partis avec des
+		/// panneaux largues ne sont pas touches (ils ne sont plus sous la piece)
+		/// et emportent leur salissure.
+		/// </summary>
+		public bool IsStale(Part part)
+		{
+			CollectEligible(part, censusScratch);
+			if (censusScratch.Count != sources.Count) {
+				return true;
+			}
+			for (var i = 0; i < censusScratch.Count; i++) {
+				if (!ReferenceEquals(censusScratch[i], sources[i])) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// Cree les overlays d'une piece. Purge d'abord tout overlay du meme nom
+		/// APPARTENANT A CETTE PIECE : l'editeur clone des GameObjects vivants
+		/// (symetrie, copie alt+clic) et ces orphelins resteraient pilotes par
+		/// les materiaux d'une autre piece — mais les overlays des pieces
+		/// enfants imbriquees et ceux partis sur des panneaux largues ne doivent
+		/// pas etre detruits. La purge est limitee a son propre nom pour que les
+		/// rigs de brulure et de poussiere d'une meme piece cohabitent.
 		/// </summary>
 		public static LosketOverlayRig Create(Part part, Shader shader, string ownerId,
 			string overlayName = OverlayName)
@@ -125,34 +189,16 @@ namespace Losket
 
 			var stale = 0;
 			foreach (var t in part.GetComponentsInChildren<Transform>(true)) {
-				if (t != null && t.name == overlayName) {
+				if (t != null && t.name == overlayName &&
+				    t.GetComponentInParent<Part>() == part) {
 					UnityEngine.Object.Destroy(t.gameObject);
 					stale++;
 				}
 			}
 
-			foreach (var source in part.FindModelComponents<MeshRenderer>()) {
-				// Le drapeau de mission a son propre systeme de decalque.
-				if (source.name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0) {
-					continue;
-				}
-				// Ne jamais dupliquer un overlay Losket, le sien ou celui d'un
-				// autre rig de la meme piece.
-				if (source.name == OverlayName || source.name == DustOverlayName) {
-					continue;
-				}
-				// Effets lumineux : flares de lampes, flammes et lueurs de
-				// moteurs. Ce sont des maillages comme les autres sous le modele,
-				// mais rien ne se depose sur de la lumiere. Reconnus par leur
-				// shader (additif / particules / non eclaire) ou leur nom.
-				if (IsLightEffect(source)) {
-					continue;
-				}
-
+			CollectEligible(part, censusScratch);
+			foreach (var source in censusScratch) {
 				var filter = source.GetComponent<MeshFilter>();
-				if (filter == null || filter.sharedMesh == null) {
-					continue;
-				}
 
 				var go = new GameObject(overlayName);
 				go.transform.SetParent(source.transform, false);

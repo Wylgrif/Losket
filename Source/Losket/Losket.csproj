@@ -9,7 +9,7 @@
     <AssemblyName>Losket</AssemblyName>
     <RootNamespace>Losket</RootNamespace>
     <Product>Losket</Product>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
 
     <!-- La DLL est ecrite directement dans le GameData du depot -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
