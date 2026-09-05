@@ -103,6 +103,7 @@ Shader "Losket/BurnOverlay"
 			// pieces voisines, colle a chaque piece pour toujours, et insensible
 			// au docking (chaque vaisseau garde le repere qu'il a capture).
 			float4x4 _ObjToPattern;
+
 			float _BurnMag, _PeakTemp, _TemperGain, _DirPower, _Spread, _Sharpness, _Streak;
 			float _NoiseScale, _Pattern, _Bleach, _Wrap, _RingMask;
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;

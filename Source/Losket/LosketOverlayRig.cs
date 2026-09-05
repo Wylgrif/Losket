@@ -138,6 +138,22 @@ namespace Losket
 				if (IsLightEffect(source)) {
 					continue;
 				}
+				// Maillages invisibles ou fantomes : masques de profondeur des
+				// entrees de reacteur, et transparents purs qui ne font pas
+				// partie de la famille cutout (celle-la est couverte par le
+				// masque alpha, parachutes compris). Deposer sur de l'invisible
+				// fait apparaitre des formes qui n'existent pas.
+				var sourceMaterial = source.sharedMaterial;
+				if (sourceMaterial != null && sourceMaterial.shader != null) {
+					var sn = sourceMaterial.shader.name;
+					if (sn.IndexOf("DepthMask", StringComparison.OrdinalIgnoreCase) >= 0) {
+						continue;
+					}
+					if (!IsCutoutFamily(sn) &&
+					    sourceMaterial.GetTag("RenderType", true, "Opaque") == "Transparent") {
+						continue;
+					}
+				}
 				var filter = source.GetComponent<MeshFilter>();
 				if (filter == null || filter.sharedMesh == null) {
 					continue;
@@ -218,19 +234,22 @@ namespace Losket
 				// _MainTex encode la specularite : le prendre pour un masque
 				// effacerait le depot sur les zones mates.
 				var sourceMat = source.sharedMaterial;
-				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null) {
-					var shaderName = sourceMat.shader.name;
-					if (shaderName.IndexOf("Cutoff", StringComparison.OrdinalIgnoreCase) >= 0 ||
-					    shaderName.IndexOf("Cutout", StringComparison.OrdinalIgnoreCase) >= 0 ||
-					    shaderName.IndexOf("Transparent", StringComparison.OrdinalIgnoreCase) >= 0 ||
-					    shaderName.IndexOf("Translucent", StringComparison.OrdinalIgnoreCase) >= 0 ||
-					    shaderName.IndexOf("Alpha", StringComparison.OrdinalIgnoreCase) >= 0) {
-						material.SetTexture("_BaseTex", sourceMat.mainTexture);
-						material.SetTextureScale("_BaseTex", sourceMat.mainTextureScale);
-						material.SetTextureOffset("_BaseTex", sourceMat.mainTextureOffset);
-						material.SetFloat("_UseBaseAlpha", 1f);
-					}
+				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null &&
+				    IsCutoutFamily(sourceMat.shader.name)) {
+					material.SetTexture("_BaseTex", sourceMat.mainTexture);
+					material.SetTextureScale("_BaseTex", sourceMat.mainTextureScale);
+					material.SetTextureOffset("_BaseTex", sourceMat.mainTextureOffset);
+					material.SetFloat("_UseBaseAlpha", 1f);
 				}
+
+				// Camouflage anti-surligneur : le collecteur du highlighter de
+				// KSP saute tout renderer dont le NOM de materiau contient
+				// "KSP/Alpha/Translucent Additive" (verifie dans le code
+				// decompile de Highlighting.Highlighter.GrabRenderers). Sans ce
+				// nom, nos overlays sont re-rendus en vert fluo au survol de la
+				// piece. Un nom de materiau est de la pure metadonnee : aucun
+				// effet de bord.
+				material.name = overlayName + " KSP/Alpha/Translucent Additive";
 
 				var renderer = go.AddComponent<MeshRenderer>();
 				// Un materiau par sous-maillage, sinon seuls les premiers sont couverts.
@@ -384,6 +403,17 @@ namespace Losket
 			materials.Clear();
 			materialSlots.Clear();
 			meshBounds.Clear();
+		}
+
+		/// <summary>Famille de shaders a decoupe/transparence dont l'alpha de la
+		/// texture sert de masque de depot (parachutes, ailes, poutrelles).</summary>
+		private static bool IsCutoutFamily(string shaderName)
+		{
+			return shaderName.IndexOf("Cutoff", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Cutout", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Transparent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Translucent", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			       shaderName.IndexOf("Alpha", StringComparison.OrdinalIgnoreCase) >= 0;
 		}
 
 		private static bool IsLightEffect(Renderer source)
