@@ -242,15 +242,6 @@ namespace Losket
 					material.SetFloat("_UseBaseAlpha", 1f);
 				}
 
-				// Camouflage anti-surligneur : le collecteur du highlighter de
-				// KSP saute tout renderer dont le NOM de materiau contient
-				// "KSP/Alpha/Translucent Additive" (verifie dans le code
-				// decompile de Highlighting.Highlighter.GrabRenderers). Sans ce
-				// nom, nos overlays sont re-rendus en vert fluo au survol de la
-				// piece. Un nom de materiau est de la pure metadonnee : aucun
-				// effet de bord.
-				material.name = overlayName + " KSP/Alpha/Translucent Additive";
-
 				var renderer = go.AddComponent<MeshRenderer>();
 				// Un materiau par sous-maillage, sinon seuls les premiers sont couverts.
 				var slots = new Material[filter.sharedMesh.subMeshCount];
