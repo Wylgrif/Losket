@@ -30,8 +30,8 @@ namespace Losket
 			var icon = GameDatabase.Instance.GetTexture("Losket/Textures/toolbar", false);
 			if (icon == null) {
 				LosketBootstrap.LogWarning(
-					"icone de barre d'applications introuvable (Losket/Textures/toolbar) " +
-					"- genere-la avec Tools/make_toolbar_icon.py");
+					"icone de barre d'applications introuvable " +
+					"- GameData/Losket/Textures/toolbar.png manque a l'installation");
 				return;
 			}
 
