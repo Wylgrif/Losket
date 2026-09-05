@@ -1,111 +1,112 @@
 # Losket
 
-Mod KSP 1.12.5 ajoutant des marques persistantes sur les pièces : brûlures de
-rentrée atmosphérique et poussière soulevée par les moteurs.
+KSP 1.12.5 mod adding persistent marks on parts: atmospheric reentry burns and
+dust kicked up by engines.
 
-## Environnement
+## Environment
 
-| Outil | Version | Emplacement |
+| Tool | Version | Location |
 |---|---|---|
 | KSP (dev) | 1.12.5 build 03190 | `C:\KSPDev\KSP-1.12.5-Losket` |
-| KSP (test compat) | 1.12.5 + ~90 mods | install Steam |
+| KSP (compat test) | 1.12.5 + ~90 mods | Steam install |
 | Unity | 2019.4.18f1 | `C:\Program Files\Unity\Editor` |
 | .NET SDK | 8.0.424 | `C:\Program Files\dotnet` |
 
-L'install de dev ne contient que Squad, SquadExpansion, ModuleManager, Harmony
-et Shabby. Elle sert au développement quotidien. L'install Steam moddée sert
-uniquement aux tests de compatibilité (Deferred, TexturesUnlimited, Parallax…).
+The dev install only contains Squad, SquadExpansion, ModuleManager, Harmony
+and Shabby. It's used for day-to-day development. The modded Steam install is
+only used for compatibility testing (Deferred, TexturesUnlimited, Parallax…).
 
-Pour pointer vers une autre install KSP, créer un `LocalSettings.props` à la
-racine (ignoré par git) :
+To point to a different KSP install, create a `LocalSettings.props` at the
+root (git-ignored):
 
 ```xml
 <Project>
   <PropertyGroup>
-    <KSPRoot>D:\Mon\Autre\KSP</KSPRoot>
+    <KSPRoot>D:\My\Other\KSP</KSPRoot>
   </PropertyGroup>
 </Project>
 ```
 
-## Arborescence
+## Directory layout
 
 ```
 Losket/
-├─ Source/Losket/        code C# du plugin
-├─ Unity/LosketShaders/  projet Unity, uniquement pour compiler les shaders
-├─ GameData/Losket/      ce qui est copié dans KSP (sortie de build incluse)
-├─ Tools/                scripts de build et de lecture de log
-├─ Exemples/             références visuelles et cahier des charges
-└─ shabby/               copie de référence du dépôt Shabby
+├─ Source/Losket/        plugin C# code
+├─ Unity/LosketShaders/  Unity project, only used to compile the shaders
+├─ GameData/Losket/      what gets copied into KSP (build output included)
+├─ Tools/                build and log-reading scripts
+├─ Exemples/             visual references and specifications
+└─ shabby/               reference copy of the Shabby repo
 ```
 
-## Cycle de développement
+## Development cycle
 
-### Code C#
+### C# code
 
 ```bash
 powershell -File Tools/build.ps1 -Run
 ```
 
-Compile, copie `GameData/Losket` dans l'install de dev, et lance KSP. Sans
-`-Run`, le jeu n'est pas démarré. La DLL est produite directement dans
+Compiles, copies `GameData/Losket` into the dev install, and launches KSP.
+Without `-Run`, the game isn't started. The DLL is produced directly at
 `GameData/Losket/Plugins/Losket.dll`.
 
 ### Shaders
 
-1. Ouvrir `Unity/LosketShaders` dans Unity 2019.4.18f1.
-2. Menu **Losket > Configurer le projet** (une seule fois, après le premier
-   ouverture du projet).
-3. Menu **Losket > Compiler le bundle de shaders** (`Ctrl+Shift+B`).
+1. Open `Unity/LosketShaders` in Unity 2019.4.18f1.
+2. Menu **Losket > Configure Project** (only once, after first opening the
+   project).
+3. Menu **Losket > Compile Shader Bundle** (`Ctrl+Shift+B`).
 
-Le bundle est écrit dans `GameData/Losket/Shaders/Losket.shaderbundle`. Il faut
-ensuite relancer `Tools/build.ps1` pour le déployer.
+The bundle is written to `GameData/Losket/Shaders/Losket.shaderbundle`. You
+then need to rerun `Tools/build.ps1` to deploy it.
 
-### Lire les logs
+### Reading logs
 
 ```bash
 powershell -File Tools/logtail.ps1
 ```
 
-Filtre `KSP.log` sur `[Losket]` et les exceptions. `-Follow` suit le fichier en
-direct pendant que le jeu tourne.
+Filters `KSP.log` for `[Losket]` and exceptions. `-Follow` tails the file
+live while the game is running.
 
-## Notes techniques
+## Technical notes
 
-**Chargement du bundle.** Le bundle utilise l'extension `.shaderbundle` et non
-`.shab`, et il est chargé par `LosketBootstrap` avec `AssetBundle.LoadFromFile`.
-Passer par Shabby est possible mais crée un conflit : Shabby enregistre un
-chargeur pour `.shab`, et Unity refuse qu'un même fichier soit chargé deux fois
-en tant qu'AssetBundle. Charger nous-mêmes supprime aussi toute dépendance
-obligatoire à Shabby.
+**Bundle loading.** The bundle uses the `.shaderbundle` extension instead of
+`.shab`, and is loaded by `LosketBootstrap` with `AssetBundle.LoadFromFile`.
+Going through Shabby is possible but creates a conflict: Shabby registers a
+loader for `.shab`, and Unity refuses to have the same file loaded twice as
+an AssetBundle. Loading it ourselves also removes any mandatory dependency on
+Shabby.
 
-**Ne pas alléger `Packages/manifest.json`.** Le projet Unity doit conserver le
-manifeste par défaut d'Unity 2019.4 et ses 38 modules. Un manifeste réduit
-produit un AssetBundle d'apparence parfaitement valide — en-tête UnityFS
-correct, version de sérialisation 21, cible `StandaloneWindows64`, mêmes
-dépendances externes qu'un bundle qui fonctionne — que KSP refuse ensuite avec
-un message trompeur :
+**Do not trim `Packages/manifest.json`.** The Unity project must keep
+Unity 2019.4's default manifest and its 38 modules. A trimmed manifest
+produces an AssetBundle that looks perfectly valid — correct UnityFS header,
+serialization version 21, `StandaloneWindows64` target, same external
+dependencies as a working bundle — which KSP then rejects with a misleading
+message:
 
 > The AssetBundle … could not be loaded because it is not compatible with this
 > newer version of the Unity runtime.
 
-Le module critique est `com.unity.modules.assetbundle`. `BuildBundle` vérifie
-désormais sa présence avant de compiler et refuse de produire un bundle sans
-lui. Aucun symptôme n'apparaît côté Unity : le projet s'ouvre, le shader
-compile, le build réussit.
+The critical module is `com.unity.modules.assetbundle`. `BuildBundle` now
+checks for its presence before compiling and refuses to produce a bundle
+without it. No symptom shows up on the Unity side: the project opens, the
+shader compiles, the build succeeds.
 
-**Espace colorimétrique.** `PlayerSettings.colorSpace` du projet Unity doit
-correspondre à celui de KSP. KSP 1.12.5 tourne en **Gamma** (vérifié dans le
-journal de démarrage), le projet est réglé en conséquence. La valeur réelle est
-journalisée à chaque lancement par `LosketBootstrap`.
+**Color space.** The Unity project's `PlayerSettings.colorSpace` must match
+KSP's. KSP 1.12.5 runs in **Gamma** (verified in the startup log), and the
+project is set accordingly. The actual value is logged on every launch by
+`LosketBootstrap`.
 
-**Où lire les journaux.** KSP écrit dans `KSP.log` à la racine du jeu *et* dans
-`%USERPROFILE%\AppData\LocalLow\Squad\Kerbal Space Program\Player.log`. Le
-premier peut rester figé sur une ancienne session ; `Tools/logtail.ps1` prend
-automatiquement le plus récent des deux et affiche lequel il a retenu. Tant que
-le jeu tient un journal ouvert, ni sa taille ni sa date d'entrée de répertoire
-ne sont rafraîchies — il faut lire le flux, pas les métadonnées.
+**Where to read the logs.** KSP writes to `KSP.log` at the game's root *and*
+to `%USERPROFILE%\AppData\LocalLow\Squad\Kerbal Space Program\Player.log`.
+The former can stay stuck on an old session; `Tools/logtail.ps1`
+automatically picks whichever of the two is most recent and shows which one
+it picked. As long as the game holds a log file open, neither its size nor
+its directory entry date get refreshed — you need to read the stream, not
+the metadata.
 
-**APIs graphiques.** Le bundle est compilé pour Direct3D11 et OpenGLCore. Sans
-OpenGLCore, les shaders apparaissent en magenta pour les joueurs qui lancent KSP
-avec `-force-glcore`.
+**Graphics APIs.** The bundle is compiled for Direct3D11 and OpenGLCore.
+Without OpenGLCore, shaders appear magenta for players launching KSP with
+`-force-glcore`.
