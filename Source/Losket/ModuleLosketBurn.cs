@@ -157,6 +157,137 @@ namespace Losket
 			}
 		}
 
+		/// <summary>Remise a neuf de la brulure (nettoyage EVA, pre-lancement).</summary>
+		public void Clean()
+		{
+			dose = 0f;
+			peakSkinTemp = 0f;
+			dirAccum = Vector3.zero;
+			patternWindowMin = 0f;
+			patternWindowRange = -1f;
+		}
+
+		/// <summary>
+		/// Nettoyage par un ingenieur en EVA : bouton du menu de piece, visible
+		/// seulement quand un ingenieur est a portee ET que la piece porte
+		/// quelque chose. Efface brulure et poussiere ensemble - on nettoie une
+		/// piece, pas un effet.
+		///
+		/// KSP mesure unfocusedRange entre le kerbal et le PIVOT de la piece
+		/// (UIPartActionWindow.CanActivateEvent) : sur un gros reservoir le
+		/// kerbal touche la paroi sans jamais etre a 4 m du pivot. On laisse
+		/// donc ce test passer (portee large) et on mesure nous-memes la
+		/// distance a la surface (boite englobante des renderers).
+		/// </summary>
+		[KSPEvent(guiActive = false, guiActiveEditor = false, guiActiveUnfocused = true,
+			externalToEVAOnly = true, unfocusedRange = 100f, guiName = "#LOC_Losket_Clean",
+			groupName = Group, groupDisplayName = GroupTitle)]
+		public void CleanPart()
+		{
+			// Pas d'effet de particules : essaye (bouffee, puis grains par
+			// maillage), les boites d'emission restaient lisibles autour des
+			// formes courbes. Le fondu seul est plus credible.
+			BeginCleanFade();
+			if (dustModule != null && dustModule.IsDirty) {
+				dustModule.BeginCleanFade();
+			}
+		}
+
+		/// <summary>Duree du fondu de nettoyage (s) : le depot s'efface
+		/// pendant que les particules s'echappent, au lieu de disparaitre net.</summary>
+		public const float CleanFadeTime = 1.5f;
+
+		private float cleanFade = -1f;
+		private float cleanDoseStart;
+		private Vector3 cleanDirStart;
+
+		public bool IsCleaning
+		{
+			get { return cleanFade > 0f; }
+		}
+
+		public void BeginCleanFade()
+		{
+			cleanFade = CleanFadeTime;
+			cleanDoseStart = dose;
+			cleanDirStart = dirAccum;
+		}
+
+		/// <summary>Fait avancer le fondu ; la dose retombe lineairement puis
+		/// Clean() finalise l'etat persistant.</summary>
+		private void TickCleanFade()
+		{
+			if (cleanFade <= 0f) {
+				return;
+			}
+			cleanFade -= Time.deltaTime;
+			if (cleanFade <= 0f) {
+				Clean();
+			} else {
+				// Dose et direction decroissent ensemble : dirAccum/dose (la
+				// stabilite de rentree) reste constant pendant le fondu.
+				var f = cleanFade / CleanFadeTime;
+				dose = cleanDoseStart * f;
+				dirAccum = cleanDirStart * f;
+			}
+		}
+
+		private ModuleLosketDust dustModule;
+
+		// Un seul test par image pour tout le vaisseau : "le vaisseau actif
+		// est-il un ingenieur en EVA ?" Chaque piece lit le resultat.
+		private static int evaCheckFrame = -1;
+		private static bool evaEngineerActive;
+
+		private static bool EvaEngineerActive()
+		{
+			if (evaCheckFrame == Time.frameCount) {
+				return evaEngineerActive;
+			}
+			evaCheckFrame = Time.frameCount;
+			evaEngineerActive = false;
+			var active = FlightGlobals.ActiveVessel;
+			if (active == null || !active.isEVA || active.parts.Count == 0) {
+				return false;
+			}
+			var crew = active.parts[0].protoModuleCrew;
+			if (crew == null || crew.Count == 0 || crew[0].experienceTrait == null) {
+				return false;
+			}
+			// Config.Name et non TypeName : ce dernier renvoie le titre localise
+			// ("Ingenieur" en francais), qui ne vaut jamais "Engineer".
+			var config = crew[0].experienceTrait.Config;
+			evaEngineerActive = config != null && config.Name == "Engineer";
+			return evaEngineerActive;
+		}
+
+		/// <summary>Distance a la surface de la piece (m) sous laquelle un
+		/// ingenieur peut nettoyer.</summary>
+		private const float CleanReach = 3.5f;
+
+		private bool cleanInReach;
+
+		private void UpdateCleanButton()
+		{
+			var evt = Events["CleanPart"];
+			var dirty = dose > 0f || (dustModule != null && dustModule.IsDirty);
+			var cleaning = IsCleaning || (dustModule != null && dustModule.IsCleaning);
+			if (!dirty || cleaning || !EvaEngineerActive()) {
+				evt.guiActiveUnfocused = false;
+				cleanInReach = false;
+				return;
+			}
+			// La boite englobante coute quelques renderers a parcourir : on ne
+			// la recalcule que dix fois par seconde environ, en etale.
+			if (!evt.guiActiveUnfocused ||
+			    (Time.frameCount + (GetInstanceID() & 0xFF)) % 6 == 0) {
+				var evaPos = FlightGlobals.ActiveVessel.transform.position;
+				cleanInReach = part.GetPartRendererBound().SqrDistance(evaPos) <
+				               CleanReach * CleanReach;
+			}
+			evt.guiActiveUnfocused = cleanInReach;
+		}
+
 		/// <summary>Noircissement 0..1 derive de la dose (integrale saturante).</summary>
 		private float BurnMag
 		{
@@ -191,10 +322,9 @@ namespace Losket
 				// lequel le vaisseau revient dans l'editeur (inventaire, mods de
 				// construction, .craft sauve en vol).
 				if (vessel != null && vessel.situation == Vessel.Situations.PRELAUNCH) {
-					dose = 0f;
-					peakSkinTemp = 0f;
-					dirAccum = Vector3.zero;
+					Clean();
 				}
+				dustModule = part.FindModuleImplementing<ModuleLosketDust>();
 			}
 
 			if (HighLogic.LoadedSceneIsEditor) {
@@ -426,8 +556,10 @@ namespace Losket
 				return;
 			}
 
+			TickCleanFade();
 			var mag = BurnMag;
 			burnDisplay = mag;
+			UpdateCleanButton();
 
 			if (!BurnEnabled || mag < 0.02f) {
 				if (rig != null) {

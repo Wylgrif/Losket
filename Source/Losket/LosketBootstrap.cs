@@ -45,6 +45,10 @@ namespace Losket
 
 		private static readonly Color DefaultDustColor = new Color(0.5f, 0.45f, 0.4f);
 
+		/// <summary>Pression (atm) sous laquelle les moteurs ne soulevent pas
+		/// de poussiere. Voir Configs/losket-settings.cfg. 0 = partout.</summary>
+		public static float DustMinPressureAtm { get; private set; }
+
 		/// <summary>Couleur de la poussiere du corps, depuis les noeuds
 		/// LOSKET_BODY_DUST (voir Configs/dust-colors.cfg).</summary>
 		public static Color GetDustColor(CelestialBody body)
@@ -80,6 +84,20 @@ namespace Losket
 			LoadShaderBundle();
 			LoadTemperLut();
 			LoadDustColors();
+			LoadSettings();
+		}
+
+		private void LoadSettings()
+		{
+			DustMinPressureAtm = 0.01f;
+			foreach (var node in GameDatabase.Instance.GetConfigNodes("LOSKET_SETTINGS")) {
+				float value = 0f;
+				if (node.TryGetValue("dustMinPressureAtm", ref value)) {
+					DustMinPressureAtm = Mathf.Max(0f, value);
+				}
+			}
+			Log("poussiere soulevee a partir de " + DustMinPressureAtm.ToString("0.###") +
+			    " atm" + (DustMinPressureAtm <= 0f ? " (vide compris)" : ""));
 		}
 
 		private void LoadDustColors()

@@ -66,6 +66,13 @@ namespace Losket
 				settings.dustByDefault = GUILayout.Toggle(settings.dustByDefault,
 					Localizer.Format("#LOC_Losket_Set_Dust"));
 				GUILayout.Space(6f);
+				// Curseur logarithmique : x0.1 a gauche, x1 au centre, x10 a
+				// droite, par pas de 10 %.
+				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_DustRate") +
+				                " : x" + settings.dustRate.ToString("0.##"));
+				var log = GUILayout.HorizontalSlider(Mathf.Log10(settings.dustRate), -1f, 1f);
+				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
+				GUILayout.Space(6f);
 				settings.interfaceDev = GUILayout.Toggle(settings.interfaceDev,
 					Localizer.Format("#LOC_Losket_Set_DevUI"));
 				GUILayout.Space(6f);

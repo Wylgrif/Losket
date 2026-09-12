@@ -58,11 +58,27 @@ Planet packs can add their own bodies with a ModuleManager patch:
 LOSKET_BODY_DUST { body = MyBody  color = 0.5, 0.4, 0.3 }
 ```
 
-How the dust lands depends on the atmosphere. In vacuum it is thrown out almost
-horizontally and hits the sides of the craft.
-In thick atmosphere it swirls and settles from every direction. A lander that
-has been to both keeps the mixture. Engines fired over water, launchpads,
-runways and other built surfaces raise nothing.
+How the dust lands depends on the atmosphere. In thick atmosphere it swirls
+and settles from every direction; in thin air it is thrown further and hits the
+sides of the craft. Engines fired over water, launchpads, runways and other
+built surfaces raise nothing.
+
+Dust is off in vacuum by default: the effect works but did not look convincing
+in play. `GameData/Losket/Configs/losket-settings.cfg` holds the pressure
+threshold (`dustMinPressureAtm`); set it to 0 to raise dust on the Mun and
+Minmus too.
+
+## Cleaning a part
+
+An engineer on EVA gets a **Clean part** button in the part menu of any part
+that carries scorching or dust, as long as the kerbal is within a few metres of
+the part's surface. Recovering a vessel also cleans it.
+
+## Dust rate
+
+The Losket settings (toolbar button, or Difficulty > Losket) have a **Dust
+rate** slider from x0.1 to x10. It scales how fast dust settles at the moment
+it lands; dust already on a part is not changed.
 
 ## Compatibility
 

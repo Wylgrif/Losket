@@ -44,6 +44,69 @@ namespace Losket
 			get { return 1f - Mathf.Exp(-dose / doseScale); }
 		}
 
+		public bool IsDirty
+		{
+			get { return dose > 0f; }
+		}
+
+
+		/// <summary>Duree du fondu de nettoyage (s) : le depot s'efface
+		/// pendant que les particules s'echappent, au lieu de disparaitre net.</summary>
+		public const float CleanFadeTime = 1.5f;
+
+		private float cleanFade = -1f;
+		private float cleanDoseStart;
+		private Vector3 cleanDirStart;
+		private Vector3 cleanColorStart;
+		private float cleanRingStart;
+
+		public bool IsCleaning
+		{
+			get { return cleanFade > 0f; }
+		}
+
+		public void BeginCleanFade()
+		{
+			cleanFade = CleanFadeTime;
+			cleanDoseStart = dose;
+			cleanDirStart = dirAccum;
+			cleanColorStart = colorAccum;
+			cleanRingStart = ringAccum;
+		}
+
+		/// <summary>Fait avancer le fondu ; la dose retombe lineairement puis
+		/// Clean() finalise l'etat persistant.</summary>
+		private void TickCleanFade()
+		{
+			if (cleanFade <= 0f) {
+				return;
+			}
+			cleanFade -= Time.deltaTime;
+			if (cleanFade <= 0f) {
+				Clean();
+			} else {
+				// Tous les accumulateurs decroissent ensemble : les rapports
+				// colorAccum/dose (teinte) et ringAccum/dose (anneau) restent
+				// constants. Ne baisser que la dose ferait exploser la teinte
+				// vers le blanc.
+				var f = cleanFade / CleanFadeTime;
+				dose = cleanDoseStart * f;
+				dirAccum = cleanDirStart * f;
+				colorAccum = cleanColorStart * f;
+				ringAccum = cleanRingStart * f;
+			}
+		}
+
+		/// <summary>Remise a neuf (nettoyage par un ingenieur en EVA, ou
+		/// pre-lancement). L'overlay disparait au prochain LateUpdate.</summary>
+		public void Clean()
+		{
+			dose = 0f;
+			dirAccum = Vector3.zero;
+			colorAccum = Vector3.zero;
+			ringAccum = 0f;
+		}
+
 		public override void OnStart(StartState state)
 		{
 			if (!HighLogic.LoadedSceneIsFlight) {
@@ -57,9 +120,7 @@ namespace Losket
 			// Meme garantie que la brulure : pas de tir depuis le pas de tir
 			// avec de la poussiere d'une vie anterieure.
 			if (vessel != null && vessel.situation == Vessel.Situations.PRELAUNCH) {
-				dose = 0f;
-				dirAccum = Vector3.zero;
-				colorAccum = Vector3.zero;
+				Clean();
 			}
 		}
 
@@ -106,7 +167,9 @@ namespace Losket
 				Vector3.Dot(part.transform.position - source.VesselRef, source.UpWorld));
 			var proximity = Mathf.Exp(-h / source.ScaleHeight);
 
-			var ddose = rate * proximity * TimeWarp.fixedDeltaTime;
+			// Facteur global des reglages de partie (x0.1 a x10), applique au
+			// depot et non au rendu : ce qui est depose reste depose.
+			var ddose = rate * proximity * LosketSettings.DustRate() * TimeWarp.fixedDeltaTime;
 			if (ddose <= 1e-6f) {
 				return;
 			}
@@ -128,6 +191,7 @@ namespace Losket
 				return;
 			}
 
+			TickCleanFade();
 			var mag = DustMag;
 			dustDisplay = mag;
 

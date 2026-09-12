@@ -1,4 +1,5 @@
 using KSP.Localization;
+using UnityEngine;
 
 namespace Losket
 {
@@ -29,9 +30,23 @@ namespace Losket
 			toolTip = "#LOC_Losket_Set_DustTip")]
 		public bool dustByDefault = true;
 
+		/// <summary>Multiplicateur de la vitesse de depot de la poussiere.
+		/// Echelle logarithmique : x0.1 a x10, x1 au centre.</summary>
+		[GameParameters.CustomFloatParameterUI("#LOC_Losket_Set_DustRate",
+			toolTip = "#LOC_Losket_Set_DustRateTip", minValue = 0.1f, maxValue = 10f,
+			logBase = 10f, stepCount = 21, displayFormat = "F2")]
+		public float dustRate = 1f;
+
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DevUI",
 			toolTip = "#LOC_Losket_Set_DevUITip")]
 		public bool interfaceDev = false;
+
+		/// <summary>Facteur de depot de la poussiere, 1 sans partie chargee.</summary>
+		public static float DustRate()
+		{
+			var s = Instance;
+			return s != null ? Mathf.Clamp(s.dustRate, 0.1f, 10f) : 1f;
+		}
 
 		/// <summary>Raccourci d'acces, null hors partie chargee.</summary>
 		public static LosketSettings Instance
