@@ -5,18 +5,7 @@ dust kicked up by engines.
 
 ## Environment
 
-| Tool | Version | Location |
-|---|---|---|
-| KSP (dev) | 1.12.5 build 03190 | `C:\KSPDev\KSP-1.12.5-Losket` |
-| KSP (compat test) | 1.12.5 + ~90 mods | Steam install |
-| Unity | 2019.4.18f1 | `C:\Program Files\Unity\Editor` |
-| .NET SDK | 8.0.424 | `C:\Program Files\dotnet` |
-
-The dev install only contains Squad, SquadExpansion, ModuleManager, Harmony
-and Shabby. It's used for day-to-day development. The modded Steam install is
-only used for compatibility testing (Deferred, TexturesUnlimited, Parallax…).
-
-To point to a different KSP install, create a `LocalSettings.props` at the
+To point to a KSP install, create a `LocalSettings.props` at the
 root (git-ignored):
 
 ```xml
