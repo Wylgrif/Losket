@@ -191,7 +191,7 @@ namespace Losket
 			}
 
 			var found = 0;
-			foreach (var r in FindObjectsOfType<MeshRenderer>()) {
+			foreach (var r in FindObjectsOfType<Renderer>()) {
 				if (r == null || r.name != LosketOverlayRig.OverlayName) {
 					continue;
 				}

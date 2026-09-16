@@ -428,7 +428,7 @@ namespace Losket
 				var m = rig.Materials[i];
 				var srcName = r.transform.parent != null ? r.transform.parent.name : "?";
 				var srcRenderer = r.transform.parent != null
-					? r.transform.parent.GetComponent<MeshRenderer>() : null;
+					? r.transform.parent.GetComponent<Renderer>() : null;
 				var srcShader = srcRenderer != null && srcRenderer.sharedMaterial != null &&
 				                srcRenderer.sharedMaterial.shader != null
 					? srcRenderer.sharedMaterial.shader.name : "?";

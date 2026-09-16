@@ -81,9 +81,10 @@ namespace Losket
 	}
 
 	/// <summary>
-	/// Gere les overlays de brulure d'une piece : duplication des MeshRenderers
-	/// (voie B), reassignation des materiaux si un systeme de KSP les remplace,
-	/// et poussee des parametres vers le shader.
+	/// Gere les overlays de brulure d'une piece : duplication des renderers de
+	/// maillage (voie B) - MeshRenderer, ou SkinnedMeshRenderer sur les memes
+	/// os -, reassignation des materiaux si un systeme de KSP les remplace, et
+	/// poussee des parametres vers le shader.
 	/// </summary>
 	public class LosketOverlayRig
 	{
@@ -116,14 +117,22 @@ namespace Losket
 		/// pas), moins les drapeaux, les overlays Losket, les effets lumineux,
 		/// les maillages absents — et les renderers des pieces ENFANTS, qui sont
 		/// imbriquees dans le transform du parent dans l'editeur.
+		/// Les maillages skinnes comptent : le Panther et le Whiplash sont chacun
+		/// un seul SkinnedMeshRenderer (petales de tuyere animes par des os), ne
+		/// recenser que les MeshRenderer les laissait immunises.
 		/// L'ordre de parcours est deterministe : la comparaison de peremption
 		/// peut se faire element a element.
 		/// </summary>
-		public static void CollectEligible(Part part, List<MeshRenderer> result)
+		public static void CollectEligible(Part part, List<Renderer> result)
 		{
 			result.Clear();
-			foreach (var source in part.GetComponentsInChildren<MeshRenderer>(false)) {
+			foreach (var source in part.GetComponentsInChildren<Renderer>(false)) {
 				if (source == null) {
+					continue;
+				}
+				// Seuls les maillages. Particules, lignes et trainees ne sont
+				// pas des coques.
+				if (!(source is MeshRenderer) && !(source is SkinnedMeshRenderer)) {
 					continue;
 				}
 				if (source.name == OverlayName || source.name == DustOverlayName) {
@@ -154,8 +163,7 @@ namespace Losket
 						continue;
 					}
 				}
-				var filter = source.GetComponent<MeshFilter>();
-				if (filter == null || filter.sharedMesh == null) {
+				if (SourceMesh(source) == null) {
 					continue;
 				}
 				if (source.GetComponentInParent<Part>() != part) {
@@ -165,7 +173,30 @@ namespace Losket
 			}
 		}
 
-		private static readonly List<MeshRenderer> censusScratch = new List<MeshRenderer>();
+		private static readonly List<Renderer> censusScratch = new List<Renderer>();
+
+		/// <summary>Maillage porte par un renderer eligible, null sinon.</summary>
+		private static Mesh SourceMesh(Renderer source)
+		{
+			var skinned = source as SkinnedMeshRenderer;
+			if (skinned != null) {
+				return skinned.sharedMesh;
+			}
+			var filter = source.GetComponent<MeshFilter>();
+			return filter != null ? filter.sharedMesh : null;
+		}
+
+		/// <summary>
+		/// Transform dont le repere est l'espace objet vu par le shader. Pour un
+		/// MeshRenderer c'est le sien. Pour un SkinnedMeshRenderer, Unity
+		/// skinne les sommets dans le repere de l'os racine (rootBone) quand il
+		/// est renseigne, et unity_ObjectToWorld est celui de cet os.
+		/// </summary>
+		private static Transform ObjectRoot(Renderer r)
+		{
+			var skinned = r as SkinnedMeshRenderer;
+			return skinned != null && skinned.rootBone != null ? skinned.rootBone : r.transform;
+		}
 
 		/// <summary>
 		/// Vrai si la geometrie de la piece a change depuis la creation du rig :
@@ -214,13 +245,11 @@ namespace Losket
 
 			CollectEligible(part, censusScratch);
 			foreach (var source in censusScratch) {
-				var filter = source.GetComponent<MeshFilter>();
+				var mesh = SourceMesh(source);
 
 				var go = new GameObject(overlayName);
 				go.transform.SetParent(source.transform, false);
 				go.layer = source.gameObject.layer;
-
-				go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
 
 				var material = new Material(shader);
 				if (LosketBootstrap.TemperLut != null) {
@@ -242,9 +271,30 @@ namespace Losket
 					material.SetFloat("_UseBaseAlpha", 1f);
 				}
 
-				var renderer = go.AddComponent<MeshRenderer>();
+				Renderer renderer;
+				Bounds bounds;
+				var skinnedSource = source as SkinnedMeshRenderer;
+				if (skinnedSource != null) {
+					// Maillage skinne : l'overlay est lui aussi un
+					// SkinnedMeshRenderer, sur le meme maillage (poids et
+					// bindposes compris) et les memes os. Unity le deforme a
+					// l'identique : la tuyere animee reste couverte.
+					var skinned = go.AddComponent<SkinnedMeshRenderer>();
+					skinned.sharedMesh = mesh;
+					skinned.bones = skinnedSource.bones;
+					skinned.rootBone = skinnedSource.rootBone;
+					skinned.quality = skinnedSource.quality;
+					skinned.updateWhenOffscreen = skinnedSource.updateWhenOffscreen;
+					skinned.localBounds = skinnedSource.localBounds;
+					renderer = skinned;
+					bounds = skinnedSource.localBounds;
+				} else {
+					go.AddComponent<MeshFilter>().sharedMesh = mesh;
+					renderer = go.AddComponent<MeshRenderer>();
+					bounds = mesh.bounds;
+				}
 				// Un materiau par sous-maillage, sinon seuls les premiers sont couverts.
-				var slots = new Material[filter.sharedMesh.subMeshCount];
+				var slots = new Material[mesh.subMeshCount];
 				for (var i = 0; i < slots.Length; i++) {
 					slots[i] = material;
 				}
@@ -256,7 +306,7 @@ namespace Losket
 				rig.sources.Add(source);
 				rig.materials.Add(material);
 				rig.materialSlots.Add(slots);
-				rig.meshBounds.Add(filter.sharedMesh.bounds);
+				rig.meshBounds.Add(bounds);
 			}
 
 			LosketBootstrap.Log(ownerId + " : " + rig.overlays.Count + " overlay(s)" +
@@ -310,7 +360,7 @@ namespace Losket
 				// docking : chaque vaisseau conserve le repere qu'il a capture,
 				// la seule couture est au port d'amarrage.
 				var objToPattern = p.PartToPattern *
-					partTransform.worldToLocalMatrix * r.transform.localToWorldMatrix;
+					partTransform.worldToLocalMatrix * ObjectRoot(r).localToWorldMatrix;
 				var dirPattern = p.PartToPattern.MultiplyVector(
 					partTransform.InverseTransformDirection(p.WorldFlowDir)).normalized;
 
