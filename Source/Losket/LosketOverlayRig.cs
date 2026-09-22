@@ -96,9 +96,24 @@ namespace Losket
 		private readonly List<Material> materials = new List<Material>();
 		private readonly List<Material[]> materialSlots = new List<Material[]>();
 		private readonly List<Bounds> meshBounds = new List<Bounds>();
+		/// <summary>Masque alpha repris de la texture d'origine (famille
+		/// cutout) : Used = false pour les overlays sans masque. Sert a
+		/// detecter un changement de texture a la source (drapeau de mission
+		/// choisi ou retourne apres la creation du rig).</summary>
+		private readonly List<BaseMask> baseMasks = new List<BaseMask>();
 		private readonly string ownerId;
 		private readonly string overlayName;
 		private Transform partTransform;
+		/// <summary>File de rendu par defaut du shader d'overlay (Geometry+100).</summary>
+		private int defaultQueue;
+
+		private struct BaseMask
+		{
+			public bool Used;
+			public Texture Texture;
+			public Vector2 Scale;
+			public Vector2 Offset;
+		}
 
 		public int Count { get { return overlays.Count; } }
 
@@ -114,9 +129,11 @@ namespace Losket
 		/// <summary>
 		/// Recense les renderers eligibles d'une piece : toute la hierarchie (et
 		/// pas seulement le noeud model, ou les coiffes procedurales n'habitent
-		/// pas), moins les drapeaux, les overlays Losket, les effets lumineux,
-		/// les maillages absents — et les renderers des pieces ENFANTS, qui sont
+		/// pas), moins les overlays Losket, les effets lumineux, les maillages
+		/// absents ou fantomes — et les renderers des pieces ENFANTS, qui sont
 		/// imbriquees dans le transform du parent dans l'editeur.
+		/// Les quads de drapeau (FlagDecal) sont recenses : ils sont dessines
+		/// apres la coque et la masqueraient sinon.
 		/// Les maillages skinnes comptent : le Panther et le Whiplash sont chacun
 		/// un seul SkinnedMeshRenderer (petales de tuyere animes par des os), ne
 		/// recenser que les MeshRenderer les laissait immunises.
@@ -126,6 +143,7 @@ namespace Losket
 		public static void CollectEligible(Part part, List<Renderer> result)
 		{
 			result.Clear();
+			CollectDecalNames(part, decalScratch);
 			foreach (var source in part.GetComponentsInChildren<Renderer>(false)) {
 				if (source == null) {
 					continue;
@@ -138,29 +156,39 @@ namespace Losket
 				if (source.name == OverlayName || source.name == DustOverlayName) {
 					continue;
 				}
-				// Le drapeau de mission a son propre systeme de decalque.
-				if (source.name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0) {
-					continue;
-				}
+				// Quad de drapeau declare par un FlagDecal de la piece : un
+				// decalque translucide (file Transparent) que l'on couvre
+				// quand meme, avec l'alpha du drapeau pour masque.
+				var isDecal = decalScratch.Contains(source.name);
 				// Effets lumineux : flares de lampes, flammes et lueurs de
 				// moteurs. Rien ne se depose sur de la lumiere.
 				if (IsLightEffect(source)) {
 					continue;
 				}
 				// Maillages invisibles ou fantomes : masques de profondeur des
-				// entrees de reacteur, et transparents purs qui ne font pas
+				// entrees de reacteur, transparents purs qui ne font pas
 				// partie de la famille cutout (celle-la est couverte par le
-				// masque alpha, parachutes compris). Deposer sur de l'invisible
-				// fait apparaitre des formes qui n'existent pas.
+				// masque alpha, parachutes compris), et tout materiau rendu
+				// dans la file Transparent (>= 3000) : il n'ecrit pas la
+				// profondeur, ce n'est pas une surface. C'est le cas des
+				// panaches Waterfall (Alpha, Distortion) qui ne declarent
+				// pas de tag RenderType et que seule leur file trahit.
+				// Deposer sur de l'invisible fait apparaitre des formes qui
+				// n'existent pas — un cylindre derriere un Goliath (issue #3).
 				var sourceMaterial = source.sharedMaterial;
 				if (sourceMaterial != null && sourceMaterial.shader != null) {
 					var sn = sourceMaterial.shader.name;
 					if (sn.IndexOf("DepthMask", StringComparison.OrdinalIgnoreCase) >= 0) {
 						continue;
 					}
-					if (!IsCutoutFamily(sn) &&
-					    sourceMaterial.GetTag("RenderType", true, "Opaque") == "Transparent") {
-						continue;
+					if (!isDecal) {
+						if (!IsCutoutFamily(sn) &&
+						    sourceMaterial.GetTag("RenderType", true, "Opaque") == "Transparent") {
+							continue;
+						}
+						if (sourceMaterial.renderQueue >= TransparentQueue) {
+							continue;
+						}
 					}
 				}
 				if (SourceMesh(source) == null) {
@@ -174,6 +202,29 @@ namespace Losket
 		}
 
 		private static readonly List<Renderer> censusScratch = new List<Renderer>();
+		private static readonly List<string> decalScratch = new List<string>();
+
+		/// <summary>Debut de la file de rendu Transparent d'Unity.</summary>
+		private const int TransparentQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+		/// <summary>
+		/// Noms des quads de drapeau declares par les modules FlagDecal de la
+		/// piece (textureQuadName) : c'est la declaration de KSP lui-meme, pas
+		/// une devinette sur le nom du maillage.
+		/// </summary>
+		private static void CollectDecalNames(Part part, List<string> result)
+		{
+			result.Clear();
+			if (part.Modules == null) {
+				return;
+			}
+			for (var i = 0; i < part.Modules.Count; i++) {
+				var decal = part.Modules[i] as FlagDecal;
+				if (decal != null && !string.IsNullOrEmpty(decal.textureQuadName)) {
+					result.Add(decal.textureQuadName);
+				}
+			}
+		}
 
 		/// <summary>Maillage porte par un renderer eligible, null sinon.</summary>
 		private static Mesh SourceMesh(Renderer source)
@@ -252,6 +303,7 @@ namespace Losket
 				go.layer = source.gameObject.layer;
 
 				var material = new Material(shader);
+				rig.defaultQueue = material.renderQueue;
 				if (LosketBootstrap.TemperLut != null) {
 					material.SetTexture("_TemperLut", LosketBootstrap.TemperLut);
 				}
@@ -263,11 +315,11 @@ namespace Losket
 				// _MainTex encode la specularite : le prendre pour un masque
 				// effacerait le depot sur les zones mates.
 				var sourceMat = source.sharedMaterial;
+				var mask = new BaseMask();
 				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null &&
 				    IsCutoutFamily(sourceMat.shader.name)) {
-					material.SetTexture("_BaseTex", sourceMat.mainTexture);
-					material.SetTextureScale("_BaseTex", sourceMat.mainTextureScale);
-					material.SetTextureOffset("_BaseTex", sourceMat.mainTextureOffset);
+					mask.Used = true;
+					RefreshBaseMask(material, sourceMat, ref mask);
 					material.SetFloat("_UseBaseAlpha", 1f);
 				}
 
@@ -307,6 +359,7 @@ namespace Losket
 				rig.materials.Add(material);
 				rig.materialSlots.Add(slots);
 				rig.meshBounds.Add(bounds);
+				rig.baseMasks.Add(mask);
 			}
 
 			LosketBootstrap.Log(ownerId + " : " + rig.overlays.Count + " overlay(s)" +
@@ -334,6 +387,19 @@ namespace Losket
 				}
 				if (!srcVisible) {
 					continue;
+				}
+				var srcMat = src.sharedMaterial;
+
+				// Le masque alpha suit la texture d'origine : FlagDecal change
+				// le drapeau (choix de mission, miroir) apres la creation du
+				// rig, et le rig n'est pas perime pour autant (memes renderers).
+				var mask = baseMasks[i];
+				if (mask.Used && srcMat != null &&
+				    (!ReferenceEquals(srcMat.mainTexture, mask.Texture) ||
+				     srcMat.mainTextureScale != mask.Scale ||
+				     srcMat.mainTextureOffset != mask.Offset)) {
+					RefreshBaseMask(m, srcMat, ref mask);
+					baseMasks[i] = mask;
 				}
 
 				// Auto-reparation : d'autres systemes de KSP (variantes,
@@ -422,10 +488,33 @@ namespace Losket
 				m.SetFloat("_Pattern", p.Pattern);
 				m.SetFloat("_Bleach", p.Bleach);
 				m.SetColor("_SootColor", p.DepositColor);
-				if (p.RenderQueue > 0 && m.renderQueue != p.RenderQueue) {
-					m.renderQueue = p.RenderQueue;
+
+				// File de rendu : celle demandee (brulure Geometry+100, poussiere
+				// juste apres), mais toujours DERRIERE la surface couverte. Un
+				// decalque de drapeau (AlphaTest+50 ou Transparent) est dessine
+				// apres la coque : un overlay laisse a Geometry+100 serait
+				// recouvert par le drapeau propre. Le rang brulure/poussiere
+				// est conserve au-dela de la source.
+				var baseQueue = p.RenderQueue > 0 ? p.RenderQueue : defaultQueue;
+				var rank = baseQueue - defaultQueue;
+				var srcQueue = srcMat != null ? srcMat.renderQueue : 0;
+				var queue = Math.Max(baseQueue, srcQueue + 1 + rank);
+				if (m.renderQueue != queue) {
+					m.renderQueue = queue;
 				}
 			}
+		}
+
+		/// <summary>Copie texture, echelle et decalage de la source vers le
+		/// masque alpha de l'overlay, et memorise ce qui a ete copie.</summary>
+		private static void RefreshBaseMask(Material overlay, Material sourceMat, ref BaseMask mask)
+		{
+			mask.Texture = sourceMat.mainTexture;
+			mask.Scale = sourceMat.mainTextureScale;
+			mask.Offset = sourceMat.mainTextureOffset;
+			overlay.SetTexture("_BaseTex", mask.Texture);
+			overlay.SetTextureScale("_BaseTex", mask.Scale);
+			overlay.SetTextureOffset("_BaseTex", mask.Offset);
 		}
 
 		public void Destroy()
@@ -444,6 +533,7 @@ namespace Losket
 			materials.Clear();
 			materialSlots.Clear();
 			meshBounds.Clear();
+			baseMasks.Clear();
 		}
 
 		/// <summary>Famille de shaders a decoupe/transparence dont l'alpha de la
