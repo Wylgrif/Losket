@@ -1,9 +1,9 @@
 # Losket
 
 Losket marks your craft with the flights it has been through. Re-entry scorches
-the surfaces that took the heat, and engines and rotors coat the hull in dust the
-colour of whatever you landed on. Both accumulate over a vessel's lifetime and
-are saved with it.
+the surfaces that took the heat, engine exhaust blackens whatever stands in its
+way, and engines and rotors coat the hull in dust the colour of whatever you
+landed on. All of it accumulates over a vessel's lifetime and is saved with it.
 
 ![ModShowcase](./docs/images/Losket.png)
 
@@ -68,10 +68,32 @@ in play. `GameData/Losket/Configs/losket-settings.cfg` holds the pressure
 threshold (`dustMinPressureAtm`); set it to 0 to raise dust on the Mun and
 Minmus too.
 
+## Engine exhaust
+
+Anything that sits in an engine's exhaust gets marked: the stage below during a
+hot staging, a tank licked by a separation motor, another vessel parked behind
+a running engine. The mark is a patch of soot ringed with heat tint, centred
+where the jet hit and drawn out downstream. Parts of the engine's own vessel
+are marked like any other.
+
+The exhaust is a cone behind each nozzle. Thrust sets its size, not its
+strength: a Sepatron burns as hard as a Mainsail at the nozzle, it just does
+not reach as far. In vacuum the cone flares wide and thins out quickly; in
+thick atmosphere it stays narrow and carries further. Parts, terrain and
+buildings standing in the way shield what is behind them.
+
+Nozzles also mark themselves, slowly. Engines are built for heat and mark ten
+times slower than other parts: the heat tint fades in over a minute or so of
+running, with only a little soot.
+
+Ion engines leave nothing. Exhaust marks follow the **Scorching** choice of
+each part, and the Losket settings have a switch to turn them off altogether
+and a rate slider from x0.1 to x10.
+
 ## Cleaning a part
 
 An engineer on EVA gets a **Clean part** button in the part menu of any part
-that carries scorching or dust, as long as the kerbal is within a few metres of
+that carries scorching, exhaust marks or dust, as long as the kerbal is within a few metres of
 the part's surface. Recovering a vessel also cleans it.
 
 ## Dust rate

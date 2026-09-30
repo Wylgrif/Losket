@@ -56,6 +56,36 @@ namespace Losket
 		public float PatternWindowMin;
 		public float PatternWindowRange;
 
+		/// <summary>
+		/// Tache localisee (panache de moteur) : le depot est concentre autour
+		/// d'un point d'impact donne en espace PIECE, fige au moment du depot.
+		/// Desactivee pour la brulure de rentree et la poussiere.
+		/// </summary>
+		public bool SpotEnabled;
+		public Vector3 SpotPosPart;
+		public float SpotRadius;
+
+		/// <summary>Sens de deplacement des gaz a l'impact, espace piece. La
+		/// trainee s'etire de ce cote. Distinct de WorldFlowDir, qui designe
+		/// les faces exposees.</summary>
+		public Vector3 SpotFlowPart;
+
+		/// <summary>Etirement de la tache vers l'aval du jet (1 = ronde).</summary>
+		public float SpotStretch;
+
+		/// <summary>Part de suie dans le depot, 0..1. Plus bas, le revenu
+		/// reste visible sous la suie.</summary>
+		public float SootGain;
+
+		/// <summary>Coupe du bord de la tache, 0..1 : sous ce niveau de la
+		/// gaussienne, plus rien. 0 = bord libre.</summary>
+		public float SpotCut;
+
+		/// <summary>Deformation de domaine du bruit, 0..1 : casse la grille
+		/// du motif ("pixels") sans changer la taille des details. 0 = bruit
+		/// d'origine (brulure de rentree, poussiere).</summary>
+		public float NoiseWarp;
+
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
 		{
@@ -76,6 +106,13 @@ namespace Losket
 				DepositColor = new Color(0.06f, 0.055f, 0.05f),
 				RenderQueue = 0,
 				PartToPattern = Matrix4x4.identity,
+				SpotEnabled = false,
+				SpotRadius = 1f,
+				SpotFlowPart = Vector3.down,
+				SpotStretch = 1f,
+				SootGain = 1f,
+				SpotCut = 0f,
+				NoiseWarp = 0f,
 			};
 		}
 	}
@@ -90,6 +127,19 @@ namespace Losket
 	{
 		public const string OverlayName = "losketBurnOverlay";
 		public const string DustOverlayName = "losketDustOverlay";
+		public const string ExhaustOverlayName = "losketExhaustOverlay";
+
+		/// <summary>Files de rendu, dans l'ordre des depots : la brulure de
+		/// rentree garde la file du shader (Geometry+100), la marque de panache
+		/// vient par-dessus, la poussiere recouvre le tout.</summary>
+		public const int ExhaustQueue = 2101;
+		public const int DustQueue = 2102;
+
+		private static bool IsOverlayName(string name)
+		{
+			return name == OverlayName || name == DustOverlayName ||
+			       name == ExhaustOverlayName;
+		}
 
 		private readonly List<Renderer> overlays = new List<Renderer>();
 		private readonly List<Renderer> sources = new List<Renderer>();
@@ -153,7 +203,7 @@ namespace Losket
 				if (!(source is MeshRenderer) && !(source is SkinnedMeshRenderer)) {
 					continue;
 				}
-				if (source.name == OverlayName || source.name == DustOverlayName) {
+				if (IsOverlayName(source.name)) {
 					continue;
 				}
 				// Quad de drapeau declare par un FlagDecal de la piece : un
@@ -488,6 +538,19 @@ namespace Losket
 				m.SetFloat("_Pattern", p.Pattern);
 				m.SetFloat("_Bleach", p.Bleach);
 				m.SetColor("_SootColor", p.DepositColor);
+				m.SetFloat("_SootGain", p.SootGain);
+				m.SetFloat("_SpotCut", p.SpotCut);
+				m.SetFloat("_NoiseWarp", p.NoiseWarp);
+
+				// Le point d'impact est stocke en espace piece ; le shader
+				// travaille en espace motif, comme pour le bruit.
+				var spot = p.PartToPattern.MultiplyPoint3x4(p.SpotPosPart);
+				m.SetVector("_SpotPos",
+					new Vector4(spot.x, spot.y, spot.z, p.SpotEnabled ? 1f : 0f));
+				var jet = p.PartToPattern.MultiplyVector(p.SpotFlowPart);
+				m.SetVector("_SpotAxis", jet.sqrMagnitude > 1e-8f ? jet.normalized : -dirPattern);
+				m.SetFloat("_SpotRadius", p.SpotRadius);
+				m.SetFloat("_SpotStretch", p.SpotStretch);
 
 				// File de rendu : celle demandee (brulure Geometry+100, poussiere
 				// juste apres), mais toujours DERRIERE la surface couverte. Un

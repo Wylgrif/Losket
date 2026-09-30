@@ -37,6 +37,18 @@ namespace Losket
 			logBase = 10f, stepCount = 21, displayFormat = "F2")]
 		public float dustRate = 1f;
 
+		/// <summary>Marques laissees par les panaches de moteurs. S'applique
+		/// aux pieces dont "Affecte par" comprend la brulure.</summary>
+		[GameParameters.CustomParameterUI("#LOC_Losket_Set_Exhaust",
+			toolTip = "#LOC_Losket_Set_ExhaustTip")]
+		public bool exhaustMarks = true;
+
+		/// <summary>Multiplicateur de la vitesse de marquage par les panaches.</summary>
+		[GameParameters.CustomFloatParameterUI("#LOC_Losket_Set_ExhaustRate",
+			toolTip = "#LOC_Losket_Set_ExhaustRateTip", minValue = 0.1f, maxValue = 10f,
+			logBase = 10f, stepCount = 21, displayFormat = "F2")]
+		public float exhaustRate = 1f;
+
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DevUI",
 			toolTip = "#LOC_Losket_Set_DevUITip")]
 		public bool interfaceDev = false;
@@ -46,6 +58,20 @@ namespace Losket
 		{
 			var s = Instance;
 			return s != null ? Mathf.Clamp(s.dustRate, 0.1f, 10f) : 1f;
+		}
+
+		/// <summary>Vrai si les panaches de moteurs marquent les pieces.</summary>
+		public static bool ExhaustMarks()
+		{
+			var s = Instance;
+			return s == null || s.exhaustMarks;
+		}
+
+		/// <summary>Facteur de marquage des panaches, 1 sans partie chargee.</summary>
+		public static float ExhaustRate()
+		{
+			var s = Instance;
+			return s != null ? Mathf.Clamp(s.exhaustRate, 0.1f, 10f) : 1f;
 		}
 
 		/// <summary>Raccourci d'acces, null hors partie chargee.</summary>

@@ -259,8 +259,9 @@ namespace Losket
 			p.Sharpness = 1.2f;
 			p.NoiseScale = 5f;
 			p.DepositColor = dustColor;
-			// Rendue apres la brulure : la poussiere se depose par-dessus.
-			p.RenderQueue = 2101;
+			// Rendue apres la brulure et les marques de panache : la poussiere
+			// se depose par-dessus.
+			p.RenderQueue = LosketOverlayRig.DustQueue;
 
 			rig.Apply(p);
 		}

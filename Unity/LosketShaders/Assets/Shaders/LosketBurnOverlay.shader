@@ -68,6 +68,28 @@ Shader "Losket/BurnOverlay"
 		_FlowRange ("Etendue du maillage le long du flux", Float) = 2
 		_SpineAxisO ("Axe de la ligne de stagnation, espace objet", Vector) = (0, 1, 0, 0)
 		_SlantAft ("Derive des stries vers l'aval", Float) = 0
+
+		// Tache localisee (panache de moteur) : le depot est concentre autour
+		// d'un point d'impact fige en espace motif, etire vers l'aval du jet.
+		// w = 0 desactive le masque (brulure de rentree, poussiere).
+		_SpotPos ("Point d'impact, espace motif (w = actif)", Vector) = (0, 0, 0, 0)
+		_SpotAxis ("Sens du jet au point d'impact, espace motif", Vector) = (0, -1, 0, 0)
+		_SpotRadius ("Rayon de la tache (m)", Float) = 1
+		_SpotStretch ("Etirement de la tache vers l'aval", Range(1, 8)) = 1
+		// Part de suie dans le depot : a 1 la suie couvre tout, plus bas elle
+		// laisse voir le revenu (tuyere bleuie par son propre fonctionnement).
+		_SootGain ("Part de suie", Range(0, 1)) = 1
+		// Coupe nette du bord de la tache : sous ce niveau de la gaussienne,
+		// plus rien. 0 = bord libre. Sert aux tuyeres marquees par elles-memes,
+		// dont la teinte ne doit pas baver sur le bati du moteur.
+		_SpotCut ("Coupe du bord de la tache", Range(0, 1)) = 0
+
+		// Deformation de domaine du bruit : les points d'echantillonnage du
+		// motif sont decales par un bruit plus fin, dans un repere tourne. Le
+		// motif garde sa taille mais ses contours ne suivent plus la grille du
+		// bruit (les "pixels"). 0 = bruit d'origine. Verifie hors jeu par
+		// Tools/render_pattern.py, portage du motif en Python.
+		_NoiseWarp ("Deformation du bruit", Range(0, 1)) = 0
 	}
 
 	SubShader
@@ -108,6 +130,8 @@ Shader "Losket/BurnOverlay"
 			float _NoiseScale, _Pattern, _Bleach, _Wrap, _RingMask;
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;
 			float _FlowMin, _FlowRange, _SlantAft;
+			float4 _SpotPos, _SpotAxis;
+			float _SpotRadius, _SpotStretch, _SootGain, _SpotCut, _NoiseWarp;
 
 			struct appdata
 			{
@@ -146,6 +170,52 @@ Shader "Losket/BurnOverlay"
 					lerp(lerp(hash13(i + float3(0, 0, 1)), hash13(i + float3(1, 0, 1)), f.x),
 					     lerp(hash13(i + float3(0, 1, 1)), hash13(i + float3(1, 1, 1)), f.x), f.y),
 					f.z);
+			}
+
+			// Trois valeurs par sommet de grille pour le prix d'un hash : sert
+			// de champ de deplacement a la deformation de domaine.
+			float3 hash33(float3 p)
+			{
+				p = frac(p * float3(0.1031, 0.1030, 0.0973));
+				p += dot(p, p.yxz + 33.33);
+				return frac((p.xxy + p.yxx) * p.zyx);
+			}
+
+			float3 vnoise3(float3 p)
+			{
+				float3 i = floor(p);
+				float3 f = frac(p);
+				f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+				return lerp(
+					lerp(lerp(hash33(i + float3(0, 0, 0)), hash33(i + float3(1, 0, 0)), f.x),
+					     lerp(hash33(i + float3(0, 1, 0)), hash33(i + float3(1, 1, 0)), f.x), f.y),
+					lerp(lerp(hash33(i + float3(0, 0, 1)), hash33(i + float3(1, 0, 1)), f.x),
+					     lerp(hash33(i + float3(0, 1, 1)), hash33(i + float3(1, 1, 1)), f.x), f.y),
+					f.z);
+			}
+
+			// Bruit a domaine deforme. Un bruit de valeur a ses contours alignes
+			// sur sa grille : apres seuillage on voit des marches d'escalier
+			// (les "pixels"). Deux remedes cumules, sans changer la taille des
+			// details :
+			//  - tourner le repere, pour que la grille ne suive plus les axes
+			//    de la piece (rotation rigide : la statistique est inchangee) ;
+			//  - decaler le point d'echantillonnage par un bruit plus fin, d'une
+			//    fraction de cellule : les contours ondulent a petite echelle
+			//    au lieu de suivre les cellules.
+			// Le decalage est exprime en cellules du bruit appele : chaque
+			// octave est deformee a sa propre echelle. Deformer une seule fois
+			// pour toutes les octaves plie les plus fines sur elles-memes et
+			// donne un marbre, pas des taches (essaye, ecarte).
+			float wnoise(float3 p, float amount)
+			{
+				const float3x3 turn = float3x3(
+					 0.36, 0.48, -0.80,
+					-0.80, 0.60,  0.00,
+					 0.48, 0.64,  0.60);
+				float3 q = mul(turn, p);
+				q += (vnoise3(q * 1.7 + 7.3) - 0.5) * (0.8 * amount);
+				return vnoise(q);
 			}
 
 			v2f vert(appdata v)
@@ -190,13 +260,55 @@ Shader "Losket/BurnOverlay"
 					mask = saturate(mask * pow(proj, _Spread) + leading * 0.8);
 				}
 
+				// --- Tache localisee : gaussienne autour du point d'impact, en
+				// espace motif donc figee sur la piece. _SpotAxis est le sens
+				// de deplacement des gaz a l'impact - distinct de dl, qui dit
+				// quelles faces sont exposees : vers l'aval la tache s'etire en
+				// trainee, vers l'amont elle reste ronde. Un impact de face ne
+				// montre que la partie ronde, un jet rasant montre la trainee :
+				// la meme formule couvre les deux. Le bord est module par un
+				// bruit large pour ne pas dessiner un disque parfait. ---
+				if (_SpotPos.w > 0.5) {
+					float3 jet = normalize(_SpotAxis.xyz);
+					float3 rel = i.sPos - _SpotPos.xyz;
+					float along = dot(rel, jet);
+					float3 across = rel - jet * along;
+					float reach = along > 0.0 ? max(_SpotStretch, 1.0) : 1.0;
+					float3 ep = i.sPos * 1.3 + 11.7;
+					float edgeNoise = vnoise(ep);
+					if (_NoiseWarp > 0.001) {
+						// Une seule octave de bruit dessinait un contour en
+						// marches : deformee et doublee d'une octave fine.
+						edgeNoise = wnoise(ep, _NoiseWarp) * 0.8
+						          + wnoise(ep * 2.3 + 5.1, _NoiseWarp) * 0.2;
+					}
+					float edge = 0.75 + 0.5 * edgeNoise;
+					float rad = max(_SpotRadius, 0.05) * edge;
+					float d2 = dot(across, across) + (along / reach) * (along / reach);
+					float spot = exp(-d2 / (rad * rad));
+					// Coupe du bord : fondu court entre la moitie du seuil et le
+					// seuil, puis plus rien. Sans elle la queue de la gaussienne
+					// laisse un halo de revenu loin du point chaud.
+					if (_SpotCut > 0.001) {
+						spot *= smoothstep(0.5 * _SpotCut, _SpotCut, spot);
+					}
+					mask *= spot;
+				}
+
 				// --- Motif taches : bruit isotrope, legerement etire. Trois
 				// octaves decalees pour casser la grille sur les grandes pieces. ---
 				float3 p = i.sPos * _NoiseScale;
 				float3 pb = p - dl * dot(p, dl) * (1.0 - 1.0 / _Streak);
-				float blob = vnoise(pb) * 0.5
-				           + vnoise(pb * 2.63 + 17.3) * 0.32
-				           + vnoise(pb * 5.71 + 31.9) * 0.18;
+				float blob;
+				if (_NoiseWarp > 0.001) {
+					blob = wnoise(pb, _NoiseWarp) * 0.5
+					     + wnoise(pb * 2.63 + 17.3, _NoiseWarp) * 0.32
+					     + wnoise(pb * 5.71 + 31.9, _NoiseWarp) * 0.18;
+				} else {
+					blob = vnoise(pb) * 0.5
+					     + vnoise(pb * 2.63 + 17.3) * 0.32
+					     + vnoise(pb * 5.71 + 31.9) * 0.18;
+				}
 				float blobGrime = pow(saturate(mask * _BurnMag * (0.45 + 1.1 * blob) * 1.6), _Sharpness);
 
 				// --- Motif stries : decomposition de la demo de reference ---
@@ -237,7 +349,7 @@ Shader "Losket/BurnOverlay"
 				streakGrime = max(streakGrime, saturate(blobGrime * 0.3 * (spine + 0.3)));
 
 				float grime = lerp(blobGrime, streakGrime, saturate(_Pattern));
-				float soot = 1.0 - exp(-3.0 * grime);
+				float soot = (1.0 - exp(-3.0 * grime)) * saturate(_SootGain);
 
 				// --- Revenu : la teinte vient de la LUT, jamais d'un slider ---
 				float noise = lerp(blob, svn, saturate(_Pattern));
