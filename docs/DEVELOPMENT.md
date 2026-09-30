@@ -50,6 +50,27 @@ Without `-Run`, the game isn't started. The DLL is produced directly at
 The bundle is written to `GameData/Losket/Shaders/Losket.shaderbundle`. You
 then need to rerun `Tools/build.ps1` to deploy it.
 
+The same build runs from the command line, with the Unity editor closed:
+
+```bash
+"C:/Program Files/Unity/Editor/Unity.exe" -batchmode -quit -projectPath Unity/LosketShaders -executeMethod Losket.EditorTools.LosketBundleBuilder.BuildBundle -logFile unity-build.log
+```
+
+The exit code is 0 even when a shader fails to compile: look for the
+`[Losket] bundle ecrit` line in the log.
+
+### Previewing the pattern without the game
+
+```bash
+python Tools/render_pattern.py out
+```
+
+Renders the blotch pattern and the exhaust spot to PNG files, from a Python
+port of the shader's noise and colour maths (needs numpy and Pillow). It is a
+way to judge a pattern setting in seconds; it has no lighting and no
+directional mask, so the game remains the final judge. Any change to the
+shader's noise has to be mirrored in the script.
+
 ### Reading logs
 
 ```bash

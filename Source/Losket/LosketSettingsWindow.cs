@@ -73,6 +73,14 @@ namespace Losket
 				var log = GUILayout.HorizontalSlider(Mathf.Log10(settings.dustRate), -1f, 1f);
 				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
 				GUILayout.Space(6f);
+				settings.exhaustMarks = GUILayout.Toggle(settings.exhaustMarks,
+					Localizer.Format("#LOC_Losket_Set_Exhaust"));
+				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_ExhaustRate") +
+				                " : x" + settings.exhaustRate.ToString("0.##"));
+				var exhaustLog = GUILayout.HorizontalSlider(
+					Mathf.Log10(settings.exhaustRate), -1f, 1f);
+				settings.exhaustRate = Mathf.Pow(10f, Mathf.Round(exhaustLog * 24f) / 24f);
+				GUILayout.Space(6f);
 				settings.interfaceDev = GUILayout.Toggle(settings.interfaceDev,
 					Localizer.Format("#LOC_Losket_Set_DevUI"));
 				GUILayout.Space(6f);

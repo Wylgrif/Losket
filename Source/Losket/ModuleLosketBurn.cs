@@ -191,6 +191,9 @@ namespace Losket
 			if (dustModule != null && dustModule.IsDirty) {
 				dustModule.BeginCleanFade();
 			}
+			if (exhaustModule != null && exhaustModule.IsDirty) {
+				exhaustModule.BeginCleanFade();
+			}
 		}
 
 		/// <summary>Duree du fondu de nettoyage (s) : le depot s'efface
@@ -233,6 +236,7 @@ namespace Losket
 		}
 
 		private ModuleLosketDust dustModule;
+		private ModuleLosketExhaust exhaustModule;
 
 		// Un seul test par image pour tout le vaisseau : "le vaisseau actif
 		// est-il un ingenieur en EVA ?" Chaque piece lit le resultat.
@@ -270,8 +274,10 @@ namespace Losket
 		private void UpdateCleanButton()
 		{
 			var evt = Events["CleanPart"];
-			var dirty = dose > 0f || (dustModule != null && dustModule.IsDirty);
-			var cleaning = IsCleaning || (dustModule != null && dustModule.IsCleaning);
+			var dirty = dose > 0f || (dustModule != null && dustModule.IsDirty) ||
+			            (exhaustModule != null && exhaustModule.IsDirty);
+			var cleaning = IsCleaning || (dustModule != null && dustModule.IsCleaning) ||
+			               (exhaustModule != null && exhaustModule.IsCleaning);
 			if (!dirty || cleaning || !EvaEngineerActive()) {
 				evt.guiActiveUnfocused = false;
 				cleanInReach = false;
@@ -325,6 +331,7 @@ namespace Losket
 					Clean();
 				}
 				dustModule = part.FindModuleImplementing<ModuleLosketDust>();
+				exhaustModule = part.FindModuleImplementing<ModuleLosketExhaust>();
 			}
 
 			if (HighLogic.LoadedSceneIsEditor) {
@@ -415,6 +422,9 @@ namespace Losket
 				" dirStrength=" + (dose > 0f ? (dirAccum.magnitude / dose).ToString("0.00") : "n/a") +
 				" fenetre=[" + patternWindowMin.ToString("0.0") + ", +" +
 				patternWindowRange.ToString("0.0") + "]");
+			if (exhaustModule != null) {
+				LosketBootstrap.Log("  " + exhaustModule.Describe());
+			}
 			if (rig == null) {
 				LosketBootstrap.Log("  (pas de rig)");
 				return;
@@ -677,7 +687,7 @@ namespace Losket
 		}
 
 		/// <summary>Parametres visuels issus du style persistant de la piece.</summary>
-		private BurnParams StyleParams()
+		internal BurnParams StyleParams()
 		{
 			var p = BurnParams.Defaults();
 			p.Sharpness = sharpness;
