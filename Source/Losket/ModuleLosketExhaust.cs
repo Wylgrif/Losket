@@ -90,6 +90,15 @@ namespace Losket
 		/// en sort donne le rayon de la tache.</summary>
 		[KSPField(isPersistant = true)] public float spreadAccum;
 
+		// --- Enveloppe de depot (pieces deployables, voir LosketEnvelope) ---
+
+		[KSPField(isPersistant = true)] public int envState;
+		[KSPField(isPersistant = true)] public Vector3 envMin = Vector3.zero;
+		[KSPField(isPersistant = true)] public Vector3 envMax = Vector3.zero;
+
+		private LosketStowage stowage;
+		private int envTick;
+
 		[KSPField(guiActive = true, guiName = "#LOC_Losket_ExhaustAccum", guiFormat = "P0",
 			groupName = "Losket", groupDisplayName = "#LOC_Losket_Group")]
 		public float exhaustDisplay;
@@ -219,6 +228,7 @@ namespace Losket
 			flowAccum = Vector3.zero;
 			posAccum = Vector3.zero;
 			spreadAccum = 0f;
+			envState = LosketEnvelope.None;
 		}
 
 		public override void OnStart(StartState state)
@@ -230,6 +240,7 @@ namespace Losket
 				? LosketBootstrap.GetShader("Losket/BurnOverlay")
 				: null;
 			owner = part.FindModuleImplementing<ModuleLosketBurn>();
+			stowage = LosketStowage.For(part);
 
 			if (vessel != null && vessel.situation == Vessel.Situations.PRELAUNCH) {
 				Clean();
@@ -302,6 +313,7 @@ namespace Losket
 			flowAccum += flowPart * ddose;
 			posAccum += posPart * ddose;
 			spreadAccum += (posPart.sqrMagnitude + spotRadius * spotRadius) * ddose;
+			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 			if (flux > peakFlux) {
 				peakFlux = flux;
 			}
@@ -479,6 +491,11 @@ namespace Losket
 			// Autour de sa propre tuyere la chaleur diffuse sans sens
 			// privilegie : pas de trainee.
 			p.SpotStretch = Mathf.Lerp(Mathf.Max(1f, spotStretch), 1f, selfShare);
+			if (envState == LosketEnvelope.Stowed) {
+				p.UseEnvelope = true;
+				p.EnvelopeMin = envMin;
+				p.EnvelopeMax = envMax;
+			}
 
 			rig.Apply(p);
 		}

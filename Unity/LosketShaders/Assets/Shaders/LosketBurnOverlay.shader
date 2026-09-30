@@ -90,6 +90,13 @@ Shader "Losket/BurnOverlay"
 		// bruit (les "pixels"). 0 = bruit d'origine. Verifie hors jeu par
 		// Tools/render_pattern.py, portage du motif en Python.
 		_NoiseWarp ("Deformation du bruit", Range(0, 1)) = 0
+
+		// Enveloppe de depot, en espace PIECE : la boite qui englobait la
+		// geometrie d'une piece deployable quand elle s'est marquee repliee.
+		// Ce qui en sort reste propre (panneau solaire deplie apres coup).
+		// w de _EnvMin = 1 pour activer.
+		_EnvMin ("Enveloppe, coin min (w = actif)", Vector) = (0, 0, 0, 0)
+		_EnvMax ("Enveloppe, coin max", Vector) = (0, 0, 0, 0)
 	}
 
 	SubShader
@@ -131,6 +138,8 @@ Shader "Losket/BurnOverlay"
 			float4 _BurnDirW, _BurnDirO, _SpineAxisO;
 			float _FlowMin, _FlowRange, _SlantAft;
 			float4 _SpotPos, _SpotAxis;
+			float4x4 _ObjToPart;
+			float4 _EnvMin, _EnvMax;
 			float _SpotRadius, _SpotStretch, _SootGain, _SpotCut, _NoiseWarp;
 
 			struct appdata
@@ -147,6 +156,7 @@ Shader "Losket/BurnOverlay"
 				float3 oPos : TEXCOORD1;
 				float3 sPos : TEXCOORD2;
 				float2 uv : TEXCOORD3;
+				float3 pPos : TEXCOORD4;
 			};
 
 			// Hash sans sinus (precision stable sur tous les GPU).
@@ -225,6 +235,7 @@ Shader "Losket/BurnOverlay"
 				o.wNormal = UnityObjectToWorldNormal(v.normal);
 				o.oPos = v.vertex.xyz;
 				o.sPos = mul(_ObjToPattern, float4(v.vertex.xyz, 1.0)).xyz;
+				o.pPos = mul(_ObjToPart, float4(v.vertex.xyz, 1.0)).xyz;
 				o.uv = TRANSFORM_TEX(v.uv, _BaseTex);
 				return o;
 			}
@@ -371,6 +382,14 @@ Shader "Losket/BurnOverlay"
 				// parfaitement opaques a l'ecran.
 				float cutMask = smoothstep(0.25, 0.45, tex2D(_BaseTex, i.uv).a);
 				alpha *= lerp(1.0, cutMask, _UseBaseAlpha);
+
+				// Enveloppe de depot : fondu sur 10 cm au-dela de la boite, pour
+				// ne pas tracer une ligne nette sur ce qui la traverse.
+				if (_EnvMin.w > 0.5) {
+					float3 over = max(_EnvMin.xyz - i.pPos, i.pPos - _EnvMax.xyz);
+					float outside = max(over.x, max(over.y, over.z));
+					alpha *= 1.0 - smoothstep(0.0, 0.1, outside);
+				}
 
 				// Eclairage minimal : ambiante + directionnelle principale.
 				float ndl = saturate(dot(n, _WorldSpaceLightPos0.xyz));

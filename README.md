@@ -90,6 +90,16 @@ Ion engines leave nothing. Exhaust marks follow the **Scorching** choice of
 each part, and the Losket settings have a switch to turn them off altogether
 and a rate slider from x0.1 to x10.
 
+## Deployable parts
+
+What was folded away when the marks landed comes out clean. A solar panel
+stowed in its housing during re-entry unfolds unmarked, and so do antennas,
+radiators and parachute canopies. The housing itself keeps its marks.
+
+This covers parts whose deployment KSP tracks itself: solar panels, antennas,
+radiators and parachutes. If such a part picks up any marks while deployed, it
+is marked as a whole from then on, until it is cleaned.
+
 ## Cleaning a part
 
 An engineer on EVA gets a **Clean part** button in the part menu of any part
