@@ -86,6 +86,12 @@ namespace Losket
 		/// d'origine (brulure de rentree, poussiere).</summary>
 		public float NoiseWarp;
 
+		/// <summary>Enveloppe de depot en espace piece (voir LosketEnvelope) :
+		/// hors de cette boite, rien n'est rendu.</summary>
+		public bool UseEnvelope;
+		public Vector3 EnvelopeMin;
+		public Vector3 EnvelopeMax;
+
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
 		{
@@ -475,8 +481,8 @@ namespace Losket
 				// voisines, fige quel que soit le vol, et sans surprise au
 				// docking : chaque vaisseau conserve le repere qu'il a capture,
 				// la seule couture est au port d'amarrage.
-				var objToPattern = p.PartToPattern *
-					partTransform.worldToLocalMatrix * ObjectRoot(r).localToWorldMatrix;
+				var objToPart = partTransform.worldToLocalMatrix * ObjectRoot(r).localToWorldMatrix;
+				var objToPattern = p.PartToPattern * objToPart;
 				var dirPattern = p.PartToPattern.MultiplyVector(
 					partTransform.InverseTransformDirection(p.WorldFlowDir)).normalized;
 
@@ -519,6 +525,10 @@ namespace Losket
 				spine.Normalize();
 
 				m.SetMatrix("_ObjToPattern", objToPattern);
+				m.SetMatrix("_ObjToPart", objToPart);
+				m.SetVector("_EnvMin", new Vector4(p.EnvelopeMin.x, p.EnvelopeMin.y,
+					p.EnvelopeMin.z, p.UseEnvelope ? 1f : 0f));
+				m.SetVector("_EnvMax", p.EnvelopeMax);
 				m.SetVector("_BurnDirW", p.WorldFlowDir);
 				m.SetVector("_BurnDirO", dirPattern);
 				m.SetVector("_SpineAxisO", spine);
@@ -629,6 +639,56 @@ namespace Losket
 			       shaderName.IndexOf("Additive", StringComparison.OrdinalIgnoreCase) >= 0 ||
 			       shaderName.IndexOf("Unlit", StringComparison.OrdinalIgnoreCase) >= 0 ||
 			       shaderName.IndexOf("Distortion", StringComparison.OrdinalIgnoreCase) >= 0;
+		}
+
+		/// <summary>Marge ajoutee a la boite mesuree (m) : une surface posee
+		/// exactement sur une face de la boite ne doit pas scintiller.</summary>
+		private const float BoundsMargin = 0.03f;
+
+		/// <summary>
+		/// Boite englobant, en espace piece, la geometrie VISIBLE de la piece a
+		/// cet instant : les memes renderers que ceux que couvrent les
+		/// overlays, moins ceux qui sont eteints (voile de parachute dans son
+		/// sac). Faux si la piece n'a rien de visible.
+		/// Pour un maillage skinne, la boite est celle declaree par le modele
+		/// (localBounds), qui couvre en general toute l'amplitude de
+		/// l'animation : un deployable skinne n'est donc pas decoupe.
+		/// </summary>
+		public static bool MeasurePartBounds(Part part, out Vector3 min, out Vector3 max)
+		{
+			min = Vector3.zero;
+			max = Vector3.zero;
+			CollectEligible(part, censusScratch);
+			var toPart = part.transform.worldToLocalMatrix;
+			var any = false;
+			for (var i = 0; i < censusScratch.Count; i++) {
+				var r = censusScratch[i];
+				if (!r.enabled) {
+					continue;
+				}
+				var skinned = r as SkinnedMeshRenderer;
+				var b = skinned != null ? skinned.localBounds : SourceMesh(r).bounds;
+				var objToPart = toPart * ObjectRoot(r).localToWorldMatrix;
+				for (var corner = 0; corner < 8; corner++) {
+					var p = objToPart.MultiplyPoint3x4(b.center + new Vector3(
+						(corner & 1) == 0 ? -b.extents.x : b.extents.x,
+						(corner & 2) == 0 ? -b.extents.y : b.extents.y,
+						(corner & 4) == 0 ? -b.extents.z : b.extents.z));
+					if (!any) {
+						min = p;
+						max = p;
+						any = true;
+					} else {
+						min = Vector3.Min(min, p);
+						max = Vector3.Max(max, p);
+					}
+				}
+			}
+			if (any) {
+				min -= Vector3.one * BoundsMargin;
+				max += Vector3.one * BoundsMargin;
+			}
+			return any;
 		}
 
 		private static Vector3 LongestAxis(Vector3 size)

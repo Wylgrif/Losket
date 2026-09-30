@@ -73,6 +73,15 @@ namespace Losket
 		[KSPField(isPersistant = true)] public float patternWindowMin;
 		[KSPField(isPersistant = true)] public float patternWindowRange = -1f;
 
+		// --- Enveloppe de depot (pieces deployables, voir LosketEnvelope) ---
+
+		[KSPField(isPersistant = true)] public int envState;
+		[KSPField(isPersistant = true)] public Vector3 envMin = Vector3.zero;
+		[KSPField(isPersistant = true)] public Vector3 envMax = Vector3.zero;
+
+		private LosketStowage stowage;
+		private int envTick;
+
 		// --- Interface utilisateur ---
 
 		/// <summary>Cle stable, vide = suivre le defaut des reglages de partie.</summary>
@@ -165,6 +174,7 @@ namespace Losket
 			dirAccum = Vector3.zero;
 			patternWindowMin = 0f;
 			patternWindowRange = -1f;
+			envState = LosketEnvelope.None;
 		}
 
 		/// <summary>
@@ -331,6 +341,7 @@ namespace Losket
 					Clean();
 				}
 				dustModule = part.FindModuleImplementing<ModuleLosketDust>();
+				stowage = LosketStowage.For(part);
 				exhaustModule = part.FindModuleImplementing<ModuleLosketExhaust>();
 			}
 
@@ -506,6 +517,7 @@ namespace Losket
 
 			dirAccum += flowPart * dq;
 			dose += dq;
+			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 
 			if (++windowTick >= 30) {
 				windowTick = 0;
@@ -613,6 +625,11 @@ namespace Losket
 			}
 			p.WorldFlowDir = part.transform.TransformDirection(flowPart);
 			p.BurnMag = mag;
+			if (envState == LosketEnvelope.Stowed) {
+				p.UseEnvelope = true;
+				p.EnvelopeMin = envMin;
+				p.EnvelopeMax = envMax;
+			}
 			// La teinte du revenu vient de la vraie temperature de pointe ;
 			// l'irisation reglee par l'utilisateur ne joue que sur l'opacite.
 			p.PeakTemp = Mathf.Clamp01((SmoothedPeakTemp() - temperMin) / (temperMax - temperMin));

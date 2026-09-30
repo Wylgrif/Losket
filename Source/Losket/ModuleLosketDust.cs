@@ -23,6 +23,15 @@ namespace Losket
 		[KSPField(isPersistant = true)] public Vector3 dirAccum = Vector3.zero;
 		[KSPField(isPersistant = true)] public Vector3 colorAccum = Vector3.zero;
 
+		// --- Enveloppe de depot (pieces deployables, voir LosketEnvelope) ---
+
+		[KSPField(isPersistant = true)] public int envState;
+		[KSPField(isPersistant = true)] public Vector3 envMin = Vector3.zero;
+		[KSPField(isPersistant = true)] public Vector3 envMax = Vector3.zero;
+
+		private LosketStowage stowage;
+		private int envTick;
+
 		/// <summary>Part de la dose deposee en gerbe rasante (vide). Un
 		/// atterrisseur qui a connu la Mun puis Kerbin garde le melange.</summary>
 		[KSPField(isPersistant = true)] public float ringAccum;
@@ -105,6 +114,7 @@ namespace Losket
 			dirAccum = Vector3.zero;
 			colorAccum = Vector3.zero;
 			ringAccum = 0f;
+			envState = LosketEnvelope.None;
 		}
 
 		public override void OnStart(StartState state)
@@ -116,6 +126,7 @@ namespace Losket
 				? LosketBootstrap.GetShader("Losket/BurnOverlay")
 				: null;
 			owner = part.FindModuleImplementing<ModuleLosketBurn>();
+			stowage = LosketStowage.For(part);
 
 			// Meme garantie que la brulure : pas de tir depuis le pas de tir
 			// avec de la poussiere d'une vie anterieure.
@@ -181,6 +192,7 @@ namespace Losket
 			dose += ddose;
 			dirAccum += downPart * ddose;
 			ringAccum += source.RingFactor * ddose;
+			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 			var ground = source.GroundColor;
 			colorAccum += new Vector3(ground.r, ground.g, ground.b) * ddose;
 		}
@@ -262,6 +274,11 @@ namespace Losket
 			// Rendue apres la brulure et les marques de panache : la poussiere
 			// se depose par-dessus.
 			p.RenderQueue = LosketOverlayRig.DustQueue;
+			if (envState == LosketEnvelope.Stowed) {
+				p.UseEnvelope = true;
+				p.EnvelopeMin = envMin;
+				p.EnvelopeMax = envMax;
+			}
 
 			rig.Apply(p);
 		}
