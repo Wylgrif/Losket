@@ -34,6 +34,15 @@ namespace Losket
 		/// <summary>Au-dela de ce multiple du rayon du cone, plus rien.</summary>
 		public const float RadialCutoff = 1.6f;
 
+		/// <summary>
+		/// Distance, en rayons de tuyere, sur laquelle la coupure radiale passe
+		/// de 1 (au plan de sortie, le gaz est encore dans la tuyere) a
+		/// RadialCutoff. Sans cette rampe, la queue de la gaussienne depassait
+		/// le bord de la tuyere des la sortie et marquait la paroi d'une jupe
+		/// entourant le moteur (Starship de SEP, rapport de KerbalMissile).
+		/// </summary>
+		public const float CutoffRampRadii = 3f;
+
 		/// <summary>Rayon de tuyere estime (m) : ~0.25 m pour 20 kN, ~0.45 m
 		/// pour 200 kN, ~0.9 m pour 1500 kN.</summary>
 		public static float NozzleRadius(float thrustKN)
@@ -71,6 +80,15 @@ namespace Losket
 			return plume.NozzleRadius + Mathf.Max(0f, axial) * plume.TanHalfAngle;
 		}
 
+		/// <summary>Multiple du rayon du cone au-dela duquel le flux est nul,
+		/// a la distance axiale d : 1 au plan de sortie, RadialCutoff au-dela
+		/// de CutoffRampRadii rayons de tuyere.</summary>
+		public static float CutoffAt(ref Plume plume, float axial)
+		{
+			var ramp = CutoffRampRadii * Mathf.Max(plume.NozzleRadius, 1e-3f);
+			return Mathf.Lerp(1f, RadialCutoff, Mathf.Clamp01(axial / ramp));
+		}
+
 		/// <summary>
 		/// Vrai si une sphere peut toucher le panache. Test large, sans faux
 		/// negatif : il ne sert qu'a ecarter les pieces lointaines avant les
@@ -101,7 +119,7 @@ namespace Losket
 				return 0f;
 			}
 			var radial = (rel - plume.Axis * axial).magnitude;
-			if (radial > RadialCutoff * coneRadius) {
+			if (radial > CutoffAt(ref plume, axial) * coneRadius) {
 				return 0f;
 			}
 			var x = radial / coneRadius;
