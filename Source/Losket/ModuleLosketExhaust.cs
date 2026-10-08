@@ -196,8 +196,10 @@ namespace Losket
 		}
 
 		/// <summary>
-		/// Devine une helice ou une soufflante d'apres le nom de la piece, son
-		/// titre et les noms de ses modules. Les noms sont normalises (minuscules,
+		/// Devine une helice ou une soufflante d'apres le nom interne de la
+		/// piece et les noms de classe de ses modules. Jamais le titre : il est
+		/// traduit, et "Propulseur", "propulsor" ou "propulsore" contiennent
+		/// "prop" dans la plupart des langues. Les noms sont normalises (minuscules,
 		/// sans espaces, tirets ni soulignes) pour que "Turbo_Prop", "turbo prop"
 		/// et "Turboprop" se lisent pareil. "turbofan" reste chaud : c'est un
 		/// reacteur. Les mots "propellant" et "propulsion" sont retires avant de
@@ -211,8 +213,7 @@ namespace Losket
 			if (NameSaysPropeller(part.name)) {
 				return true;
 			}
-			if (part.partInfo != null && (NameSaysPropeller(part.partInfo.name)
-			                              || NameSaysPropeller(part.partInfo.title))) {
+			if (part.partInfo != null && NameSaysPropeller(part.partInfo.name)) {
 				return true;
 			}
 			for (var i = 0; i < part.Modules.Count; i++) {
