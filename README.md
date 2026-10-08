@@ -39,6 +39,11 @@ Losket group:
   blend between blotches and streaks. Touching any slider switches the preset to
   Custom.
 - Preview scorching — shows the effect in the editor without flying.
+- Exhaust: scorching / no heat — on engine parts only. Propellers, turboprops
+  and lift fans are guessed from their part name and start as "no heat", so
+  their wash leaves no soot or heat tint on the fuselage; jets and rockets
+  start as "scorching". Click to override either way. Modders can also set
+  `exhaustHeat = hot` or `cold` on the ModuleLosketExhaust module.
 
 In flight the same group reports how much scorching and dust the part has
 accumulated, as a percentage.
