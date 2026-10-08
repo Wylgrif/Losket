@@ -47,6 +47,24 @@ namespace Losket
 		[KSPField] public float engineSensitivity = 0.1f;
 
 		/// <summary>
+		/// Chaleur du jet des moteurs de la piece : "auto" (defaut) devine
+		/// d'apres le nom de la piece et de ses modules (helice, turboprop,
+		/// soufflante = froid), "hot" ou "cold" forcent. Surchargable par
+		/// ModuleManager pour les pieces mal devinees. Un moteur froid ne
+		/// marque ni les autres pieces ni sa propre tuyere ; les moteurs
+		/// electriques (ioniques) sont froids quoi qu'il arrive.
+		/// </summary>
+		[KSPField] public string exhaustHeat = "auto";
+
+		/// <summary>Choix du joueur (bouton du menu de la piece) : -1 suit
+		/// exhaustHeat, 0 jet chaud, 1 jet froid. Sauve avec le vaisseau.</summary>
+		[KSPField(isPersistant = true)] public int coldEnginesUser = -1;
+
+		/// <summary>Resultat effectif : vrai si les moteurs de la piece ne
+		/// laissent pas de marque thermique.</summary>
+		private bool coldEngines;
+
+		/// <summary>
 		/// Faux (defaut) : la teinte du revenu vient du flux de pointe, pour
 		/// une tuyere comme pour toute autre piece ; seule la sensibilite
 		/// ralentit les moteurs. Vrai : sur une tuyere marquee par elle-meme,
@@ -133,7 +151,90 @@ namespace Losket
 		/// <summary>Moteur sans jet chaud (ionique : consomme de l'electricite).</summary>
 		internal bool EngineIsCold(int index)
 		{
-			return engineIsCold[index];
+			return coldEngines || engineIsCold[index];
+		}
+
+		// --- Chaleur du jet : devinee, puis surchargable par le joueur ---
+
+		[KSPEvent(guiActive = true, guiActiveEditor = true, guiName = "#LOC_Losket_ExhaustHot",
+			groupName = "Losket", groupDisplayName = "#LOC_Losket_Group")]
+		public void ToggleColdEngines()
+		{
+			coldEnginesUser = coldEngines ? 0 : 1;
+			RefreshColdEngines();
+		}
+
+		/// <summary>Recalcule coldEngines et le libelle du bouton. Le bouton
+		/// n'apparait que sur les pieces qui ont un moteur a jet (les
+		/// moteurs electriques sont deja froids sans rien demander).</summary>
+		private void RefreshColdEngines()
+		{
+			if (coldEnginesUser >= 0) {
+				coldEngines = coldEnginesUser == 1;
+			} else if (string.Equals(exhaustHeat, "cold", System.StringComparison.OrdinalIgnoreCase)) {
+				coldEngines = true;
+			} else if (string.Equals(exhaustHeat, "hot", System.StringComparison.OrdinalIgnoreCase)) {
+				coldEngines = false;
+			} else {
+				coldEngines = LooksLikePropeller(part);
+			}
+
+			var hasHotEngine = false;
+			for (var i = 0; i < part.Modules.Count; i++) {
+				var engine = part.Modules[i] as ModuleEngines;
+				if (engine != null && !UsesElectricity(engine)) {
+					hasHotEngine = true;
+					break;
+				}
+			}
+			var toggle = Events["ToggleColdEngines"];
+			toggle.guiActive = hasHotEngine;
+			toggle.guiActiveEditor = hasHotEngine;
+			toggle.guiName = KSP.Localization.Localizer.Format(coldEngines
+				? "#LOC_Losket_ExhaustCold"
+				: "#LOC_Losket_ExhaustHot");
+		}
+
+		/// <summary>
+		/// Devine une helice ou une soufflante d'apres le nom interne de la
+		/// piece et les noms de classe de ses modules. Jamais le titre : il est
+		/// traduit, et "Propulseur", "propulsor" ou "propulsore" contiennent
+		/// "prop" dans la plupart des langues. Les noms sont normalises (minuscules,
+		/// sans espaces, tirets ni soulignes) pour que "Turbo_Prop", "turbo prop"
+		/// et "Turboprop" se lisent pareil. "turbofan" reste chaud : c'est un
+		/// reacteur. Les mots "propellant" et "propulsion" sont retires avant de
+		/// chercher "prop", ainsi que "monoprop" (moteurs a monergol, chauds).
+		/// </summary>
+		internal static bool LooksLikePropeller(Part part)
+		{
+			if (part == null) {
+				return false;
+			}
+			if (NameSaysPropeller(part.name)) {
+				return true;
+			}
+			if (part.partInfo != null && NameSaysPropeller(part.partInfo.name)) {
+				return true;
+			}
+			for (var i = 0; i < part.Modules.Count; i++) {
+				var module = part.Modules[i];
+				if (module != null && NameSaysPropeller(module.GetType().Name)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		internal static bool NameSaysPropeller(string raw)
+		{
+			if (string.IsNullOrEmpty(raw)) {
+				return false;
+			}
+			var name = raw.ToLowerInvariant()
+				.Replace(" ", "").Replace("_", "").Replace("-", "").Replace("'", "")
+				.Replace("propellant", "").Replace("propulsion", "").Replace("monoprop", "")
+				.Replace("turbofan", "");
+			return name.Contains("prop") || name.Contains("fan");
 		}
 
 		// --- Geometrie de collision (cible de panache) ---
@@ -233,6 +334,7 @@ namespace Losket
 
 		public override void OnStart(StartState state)
 		{
+			RefreshColdEngines();
 			if (!HighLogic.LoadedSceneIsFlight) {
 				return;
 			}
@@ -513,6 +615,7 @@ namespace Losket
 			       " propre=" + (selfDose / dose).ToString("0.00") +
 			       " fluxMax=" + peakFlux.ToString("0.00") +
 			       " sensibilite=" + (engines.Count > 0 ? engineSensitivity : 1f).ToString("0.00") +
+			       " froid=" + coldEngines +
 			       " tache=" + center.ToString("0.00") +
 			       " rayon=" + Mathf.Sqrt(Mathf.Max(variance, 0.01f)).ToString("0.00") + "m" +
 			       " colliders=" + colliders.Count +
