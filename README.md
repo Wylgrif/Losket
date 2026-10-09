@@ -119,7 +119,7 @@ it lands; dust already on a part is not changed.
 
 ## Compatibility
 
-Tested against Deferred, Restock, TURD and TexturesUnlimited, and
+Tested against Deferred, Restock, TURD and TexturesUnlimited, ShineFix, and
 against modded parts.
 
 ## Languages
