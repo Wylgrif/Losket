@@ -17,6 +17,14 @@ namespace Losket
 		/// <summary>Dose donnant ~63 % de recouvrement (unites de KickRate*s).</summary>
 		[KSPField] public float doseScale = 150f;
 
+		/// <summary>Lavage a l'arret : constante de temps (s) d'une piece
+		/// entierement immergee et immobile dans l'eau.</summary>
+		[KSPField] public float soakTime = 30f;
+
+		/// <summary>Lavage en mouvement : distance (m) parcourue dans l'eau qui
+		/// divise le recouvrement par e. Une coque a 10 m/s se lave en ~3 s.</summary>
+		[KSPField] public float washLength = 25f;
+
 		// --- Etat persistant ---
 
 		[KSPField(isPersistant = true)] public float dose;
@@ -154,6 +162,8 @@ namespace Losket
 				return;
 			}
 
+			Wash();
+
 			if (source == null || sourceVessel != vessel) {
 				// Le vaisseau peut changer (docking, separation) : on re-resout.
 				source = vessel.FindVesselModuleImplementing<LosketDustSource>();
@@ -195,6 +205,66 @@ namespace Losket
 			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 			var ground = source.GroundColor;
 			colorAccum += new Vector3(ground.r, ground.g, ground.b) * ddose;
+		}
+
+		/// <summary>
+		/// L'eau lave la poussiere (pas la brulure). Le taux croit avec la part
+		/// immergee de la piece et avec sa vitesse dans l'eau : immobile, elle
+		/// trempe lentement (soakTime) ; en mouvement, le courant arrache la
+		/// poussiere en proportion de la distance parcourue (washLength).
+		/// Toute la piece s'estompe d'un bloc, sans distinguer la partie
+		/// immergee - approximation assumee.
+		/// </summary>
+		private void Wash()
+		{
+			if (dose <= 0f || IsCleaning) {
+				return;
+			}
+			var body = vessel.mainBody;
+			if (body == null || !body.ocean) {
+				return;
+			}
+
+			var pos = part.transform.position;
+			float wet;
+			float speed;
+			if (part.rb != null && part.physicalSignificance == Part.PhysicalSignificance.FULL) {
+				// Calcule par KSP pour la flottabilite, a chaque tick physique.
+				wet = (float)part.submergedPortion;
+				// Vitesse propre de la piece par rapport a l'eau (qui tourne
+				// avec l'astre) : une helice immergee se lave plus vite que la coque.
+				var srfVel = (Vector3d)part.rb.velocity + Krakensbane.GetFrameVelocity()
+					- body.getRFrmVel(pos);
+				speed = (float)srfVel.magnitude;
+			} else {
+				// Pieces sans physique : pas de flottabilite calculee, on se
+				// rabat sur l'altitude de leur origine.
+				wet = FlightGlobals.getAltitudeAtPos(pos, body) < 0.0 ? 1f : 0f;
+				speed = (float)vessel.srfSpeed;
+			}
+			if (wet < 0.01f) {
+				return;
+			}
+
+			var rate = wet * (1f / Mathf.Max(soakTime, 0.1f) + speed / Mathf.Max(washLength, 0.1f));
+
+			// On fait decroitre le recouvrement VISIBLE, pas la dose : celle-ci
+			// sature (1 - e^-dose/doseScale), et une piece tres sale resterait
+			// longtemps inchangee a l'ecran avant de commencer a palir.
+			var mag = Mathf.Min(DustMag, 0.999f);
+			var newMag = mag * Mathf.Exp(-rate * TimeWarp.fixedDeltaTime);
+			if (newMag < 0.02f) {
+				// Sous le seuil d'affichage de l'overlay : propre.
+				Clean();
+				return;
+			}
+			// Facteur commun a tous les accumulateurs : la teinte (colorAccum /
+			// dose), l'orientation et la part en anneau restent inchangees.
+			var k = -doseScale * Mathf.Log(1f - newMag) / dose;
+			dose *= k;
+			dirAccum *= k;
+			colorAccum *= k;
+			ringAccum *= k;
 		}
 
 		private void LateUpdate()
