@@ -111,6 +111,13 @@ An engineer on EVA gets a **Clean part** button in the part menu of any part
 that carries scorching, exhaust marks or dust, as long as the kerbal is within a few metres of
 the part's surface. Recovering a vessel also cleans it.
 
+Water washes dust off (scorching stays). A part sitting still in the water
+loses its dust slowly; the faster it moves through the water, the faster it
+comes clean, so a boat under way or a propeller spinning underwater is clean
+within seconds. Parts inside a fairing or a closed cargo bay stay dry. The
+rates are `soakTime` and `washLength` on `ModuleLosketDust`, for
+ModuleManager patches.
+
 ## Dust rate
 
 The Losket settings (toolbar button, or Difficulty > Losket) have a **Dust
