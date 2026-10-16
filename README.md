@@ -73,6 +73,17 @@ in play. Tick **Dust in vacuum** in the Losket settings to raise dust on the Mun
 and Minmus too. With the box unticked, the pressure threshold in
 `GameData/Losket/Configs/losket-settings.cfg` (`dustMinPressureAtm`) applies.
 
+### Dust storms (Volumetric Clouds)
+
+With Blackrack's Volumetric Clouds installed, a vessel caught in one of Duna's
+dust storms slowly gets covered in Duna dust, from above: landed, flying or
+under time warp. A full storm covers a part in about two game hours. Losket
+only reads the storm coverage the clouds mod already computes; without it,
+nothing changes. A cloud layer counts as a storm when its name contains
+"dust", so planet packs that follow the same naming work too. The settings
+(`stormDust`, `stormLayerKeyword`, `stormCoverageMin`, `stormCoverageMax`,
+`stormDustTime`) live in `GameData/Losket/Configs/losket-settings.cfg`.
+
 ## Engine exhaust
 
 Anything that sits in an engine's exhaust gets marked: the stage below during a

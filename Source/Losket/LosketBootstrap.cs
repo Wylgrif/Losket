@@ -95,6 +95,7 @@ namespace Losket
 				if (node.TryGetValue("dustMinPressureAtm", ref value)) {
 					DustMinPressureAtm = Mathf.Max(0f, value);
 				}
+				LosketStorms.LoadConfig(node);
 			}
 			Log("poussiere soulevee a partir de " + DustMinPressureAtm.ToString("0.###") +
 			    " atm" + (DustMinPressureAtm <= 0f ? " (vide compris)" : ""));

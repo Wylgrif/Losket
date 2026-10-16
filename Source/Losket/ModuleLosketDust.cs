@@ -51,6 +51,10 @@ namespace Losket
 		private LosketStowage stowage;
 		private int envTick;
 
+		/// <summary>Temps universel du dernier depot de tempete, negatif =
+		/// pas encore de reference.</summary>
+		private double lastStormUT = -1.0;
+
 		/// <summary>Part de la dose deposee en gerbe rasante (vide). Un
 		/// atterrisseur qui a connu la Mun puis Kerbin garde le melange.</summary>
 		[KSPField(isPersistant = true)] public float ringAccum;
@@ -161,24 +165,19 @@ namespace Losket
 
 		private void FixedUpdate()
 		{
-			if (!HighLogic.LoadedSceneIsFlight || vessel == null || part.packed) {
+			if (!HighLogic.LoadedSceneIsFlight || vessel == null) {
+				lastStormUT = -1.0;
 				return;
 			}
 			if (!DustEnabled) {
+				lastStormUT = -1.0;
 				return;
 			}
 
 			// A l'abri d'une coiffe ou d'une soute, pas de poussiere.
 			if (part.ShieldedFromAirstream) {
+				lastStormUT = -1.0;
 				return;
-			}
-
-			// L'eau et le vent relatif enlevent la poussiere (pas la brulure).
-			if (dose > 0f && !IsCleaning) {
-				var fade = WashRate() + AirRate();
-				if (fade > 0f) {
-					Fade(fade);
-				}
 			}
 
 			if (source == null || sourceVessel != vessel) {
@@ -187,6 +186,22 @@ namespace Losket
 				sourceVessel = vessel;
 				if (source == null) {
 					return;
+				}
+			}
+
+			// Seul depot qui continue sur rails : une tempete dure des heures
+			// de jeu, on la traverse le plus souvent en acceleration du temps.
+			StormDeposit();
+
+			if (part.packed) {
+				return;
+			}
+
+			// L'eau et le vent relatif enlevent la poussiere (pas la brulure).
+			if (dose > 0f && !IsCleaning) {
+				var fade = WashRate() + AirRate();
+				if (fade > 0f) {
+					Fade(fade);
 				}
 			}
 
@@ -222,6 +237,40 @@ namespace Losket
 			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 			var ground = source.GroundColor;
 			colorAccum += new Vector3(ground.r, ground.g, ground.b) * ddose;
+		}
+
+		/// <summary>
+		/// Depot par une tempete de poussiere de Volumetric Clouds (voir
+		/// LosketStorms). Toute la piece y est exposee, sans attenuation par la
+		/// hauteur ; la poussiere se pose par le haut. Le temps ecoule est
+		/// celui du jeu (UT), pour suivre l'acceleration du temps sur rails ;
+		/// un saut plus long qu'une heure (chargement, gros saut de warp) est
+		/// plafonne plutot que de tout couvrir d'un coup.
+		/// </summary>
+		private void StormDeposit()
+		{
+			var now = Planetarium.GetUniversalTime();
+			var dt = lastStormUT >= 0.0 ? (float)System.Math.Min(now - lastStormUT, 3600.0) : 0f;
+			lastStormUT = now;
+
+			var storm = source.StormIntensity;
+			if (storm <= 0f || dt <= 0f || IsCleaning) {
+				return;
+			}
+			var ddose = storm * doseScale / LosketStorms.DustTime * LosketSettings.DustRate() * dt;
+			if (ddose <= 1e-6f) {
+				return;
+			}
+
+			var upWorld = (part.transform.position - vessel.mainBody.position).normalized;
+			var upPart = part.transform.InverseTransformDirection(upWorld);
+
+			dose += ddose;
+			dirAccum += upPart * ddose;
+			// Pas de gerbe rasante : ringAccum inchange.
+			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
+			var color = source.StormColor;
+			colorAccum += new Vector3(color.r, color.g, color.b) * ddose;
 		}
 
 		/// <summary>

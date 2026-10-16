@@ -53,6 +53,19 @@ namespace Losket
 		/// </summary>
 		public float RingFactor { get; private set; }
 
+		/// <summary>Intensite (0..1) de la tempete de poussiere de Volumetric
+		/// Clouds autour du vaisseau, voir LosketStorms.</summary>
+		public float StormIntensity { get; private set; }
+
+		/// <summary>Couleur de la poussiere de tempete : celle de l'astre.</summary>
+		public Color StormColor { get; private set; }
+
+		/// <summary>La couverture n'est relue qu'un tick sur StormStride :
+		/// une tempete evolue a l'echelle de la minute.</summary>
+		private const int StormStride = 10;
+
+		private int stormTick;
+
 		public override Activation GetActivation()
 		{
 			return Activation.LoadedVessels | Activation.FlightScene;
@@ -63,9 +76,25 @@ namespace Losket
 			KickRate = 0f;
 
 			if (vessel == null || !vessel.loaded || vessel.parts == null) {
+				StormIntensity = 0f;
 				return;
 			}
 			var body = vessel.mainBody;
+
+			// Avant tous les filtres du souffle des moteurs : une tempete salit
+			// aussi un vaisseau pose sur une piste, en vol ou en acceleration
+			// du temps (vaisseau sur rails).
+			if (++stormTick % StormStride == 0 || body == null) {
+				var wasInStorm = StormIntensity > 0f;
+				StormIntensity = LosketStorms.Intensity(body, vessel.CoM);
+				StormColor = LosketBootstrap.GetDustColor(body);
+				if (wasInStorm != StormIntensity > 0f) {
+					LosketBootstrap.Log("tempetes : " + vessel.vesselName +
+					                    (wasInStorm ? " sort de la tempete" : " entre dans une tempete (" +
+					                                  StormIntensity.ToString("0.00") + ")"));
+				}
+			}
+
 			if (body == null || !body.hasSolidSurface || vessel.Splashed) {
 				return;
 			}
