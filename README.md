@@ -69,9 +69,9 @@ sides of the craft. Engines fired over water, launchpads, runways and other
 built surfaces raise nothing.
 
 Dust is off in vacuum by default: the effect works but did not look convincing
-in play. `GameData/Losket/Configs/losket-settings.cfg` holds the pressure
-threshold (`dustMinPressureAtm`); set it to 0 to raise dust on the Mun and
-Minmus too.
+in play. Tick **Dust in vacuum** in the Losket settings to raise dust on the Mun
+and Minmus too. With the box unticked, the pressure threshold in
+`GameData/Losket/Configs/losket-settings.cfg` (`dustMinPressureAtm`) applies.
 
 ## Engine exhaust
 
@@ -90,6 +90,12 @@ buildings standing in the way shield what is behind them.
 Nozzles also mark themselves, slowly. Engines are built for heat and mark ten
 times slower than other parts: the heat tint fades in over a minute or so of
 running, with only a little soot.
+
+Jet engines (anything that breathes `IntakeAir`) mark other parts ten times
+slower than rockets: their exhaust is far cooler and burns clean, so a fuselage
+behind a jet only darkens after long flights. The jet's own nozzle still tints
+as usual. Modders can change the factor with `airBreathingRate` on
+ModuleLosketExhaust (default 0.1).
 
 Ion engines leave nothing. Exhaust marks follow the **Scorching** choice of
 each part, and the Losket settings have a switch to turn them off altogether
@@ -117,6 +123,14 @@ comes clean, so a boat under way or a propeller spinning underwater is clean
 within seconds. Parts inside a fairing or a closed cargo bay stay dry. The
 rates are `soakTime` and `washLength` on `ModuleLosketDust`, for
 ModuleManager patches.
+
+Fast flight through thick air blows dust off too. Below about 10 kPa of dynamic
+pressure (130 m/s at Kerbin sea level) dust stays put, so rovers and powered
+landings keep theirs; above it, the dust thins out over time, faster the harder
+the air hits: about a minute per step at 20 kPa, twenty seconds through a
+rocket's max-Q. A dusty plane comes back clean after a few minutes at speed.
+Duna's air is too thin to clean anything. The rates are `airMinQ` and
+`airTime` on `ModuleLosketDust`.
 
 ## Dust rate
 

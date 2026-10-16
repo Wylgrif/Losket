@@ -47,6 +47,15 @@ namespace Losket
 		[KSPField] public float engineSensitivity = 0.1f;
 
 		/// <summary>
+		/// Marquage des AUTRES pieces par les moteurs de cette piece qui
+		/// respirent de l'air (turboreacteurs, statoreacteurs), relatif a un
+		/// moteur-fusee. Leur jet est bien plus froid et brule proprement :
+		/// a 0.1, un fuselage dans le jet d'un reacteur noircit dix fois moins
+		/// vite. La tuyere elle-meme garde son propre revenu (selfRate).
+		/// </summary>
+		[KSPField] public float airBreathingRate = 0.1f;
+
+		/// <summary>
 		/// Chaleur du jet des moteurs de la piece : "auto" (defaut) devine
 		/// d'apres le nom de la piece et de ses modules (helice, turboprop,
 		/// soufflante = froid), "hot" ou "cold" forcent. Surchargable par
@@ -137,6 +146,7 @@ namespace Losket
 
 		private readonly List<ModuleEngines> engines = new List<ModuleEngines>();
 		private readonly List<bool> engineIsCold = new List<bool>();
+		private readonly List<bool> engineBreathesAir = new List<bool>();
 
 		internal int EngineCount
 		{
@@ -152,6 +162,13 @@ namespace Losket
 		internal bool EngineIsCold(int index)
 		{
 			return coldEngines || engineIsCold[index];
+		}
+
+		/// <summary>Facteur de marquage des autres pieces par ce moteur :
+		/// airBreathingRate pour un reacteur, 1 pour un moteur-fusee.</summary>
+		internal float OthersRate(int index)
+		{
+			return engineBreathesAir[index] ? Mathf.Max(0f, airBreathingRate) : 1f;
 		}
 
 		// --- Chaleur du jet : devinee, puis surchargable par le joueur ---
@@ -350,6 +367,7 @@ namespace Losket
 
 			engines.Clear();
 			engineIsCold.Clear();
+			engineBreathesAir.Clear();
 			for (var i = 0; i < part.Modules.Count; i++) {
 				// ModuleEnginesFX derive de ModuleEngines : un seul test couvre
 				// les deux, et les deux modes d'un moteur bimode.
@@ -359,6 +377,7 @@ namespace Losket
 				}
 				engines.Add(engine);
 				engineIsCold.Add(UsesElectricity(engine));
+				engineBreathesAir.Add(BreathesAir(engine));
 			}
 
 			if (!registered) {
@@ -375,6 +394,27 @@ namespace Losket
 			for (var i = 0; i < engine.propellants.Count; i++) {
 				var propellant = engine.propellants[i];
 				if (propellant != null && propellant.name == "ElectricCharge") {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// Moteur qui respire de l'air : il consomme IntakeAir (stock) ou un
+		/// equivalent de mod dont le nom commence par "Intake" (IntakeAtm de
+		/// Community Resource Pack). Teste par mode : le RAPIER en mode fusee
+		/// reste un moteur-fusee.
+		/// </summary>
+		private static bool BreathesAir(ModuleEngines engine)
+		{
+			if (engine.propellants == null) {
+				return false;
+			}
+			for (var i = 0; i < engine.propellants.Count; i++) {
+				var propellant = engine.propellants[i];
+				if (propellant != null && propellant.name != null &&
+				    propellant.name.StartsWith("Intake", System.StringComparison.Ordinal)) {
 					return true;
 				}
 			}
@@ -616,6 +656,7 @@ namespace Losket
 			       " fluxMax=" + peakFlux.ToString("0.00") +
 			       " sensibilite=" + (engines.Count > 0 ? engineSensitivity : 1f).ToString("0.00") +
 			       " froid=" + coldEngines +
+			       " reacteur=" + engineBreathesAir.Contains(true) +
 			       " tache=" + center.ToString("0.00") +
 			       " rayon=" + Mathf.Sqrt(Mathf.Max(variance, 0.01f)).ToString("0.00") + "m" +
 			       " colliders=" + colliders.Count +

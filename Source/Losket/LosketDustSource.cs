@@ -105,8 +105,9 @@ namespace Losket
 			// Sous ce seuil (Configs/losket-settings.cfg), rien n'est souleve.
 			// Par defaut cela coupe la poussiere dans le vide : le depot en
 			// gerbe rasante y est correct techniquement mais pas convaincant
-			// a l'usage.
-			if (pressureAtm < LosketBootstrap.DustMinPressureAtm) {
+			// a l'usage. La case "Poussiere dans le vide" des reglages leve le
+			// seuil.
+			if (pressureAtm < LosketSettings.DustMinPressureAtm()) {
 				return;
 			}
 

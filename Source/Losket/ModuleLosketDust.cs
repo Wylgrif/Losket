@@ -25,6 +25,17 @@ namespace Losket
 		/// divise le recouvrement par e. Une coque a 10 m/s se lave en ~3 s.</summary>
 		[KSPField] public float washLength = 25f;
 
+		/// <summary>Arrachage par le vent relatif : pression dynamique (kPa)
+		/// en dessous de laquelle la poussiere tient. ~10 kPa = 130 m/s au
+		/// niveau de la mer de Kerbin ; un rover ou un atterrisseur sur Duna
+		/// n'y arrive jamais.</summary>
+		[KSPField] public float airMinQ = 10f;
+
+		/// <summary>Arrachage par le vent relatif : constante de temps (s) a
+		/// une pression dynamique double du seuil. Elle raccourcit a mesure que
+		/// la pression monte : ~20 s a 40 kPa (max-Q d'une fusee).</summary>
+		[KSPField] public float airTime = 60f;
+
 		// --- Etat persistant ---
 
 		[KSPField(isPersistant = true)] public float dose;
@@ -162,7 +173,13 @@ namespace Losket
 				return;
 			}
 
-			Wash();
+			// L'eau et le vent relatif enlevent la poussiere (pas la brulure).
+			if (dose > 0f && !IsCleaning) {
+				var fade = WashRate() + AirRate();
+				if (fade > 0f) {
+					Fade(fade);
+				}
+			}
 
 			if (source == null || sourceVessel != vessel) {
 				// Le vaisseau peut changer (docking, separation) : on re-resout.
@@ -208,21 +225,18 @@ namespace Losket
 		}
 
 		/// <summary>
-		/// L'eau lave la poussiere (pas la brulure). Le taux croit avec la part
-		/// immergee de la piece et avec sa vitesse dans l'eau : immobile, elle
-		/// trempe lentement (soakTime) ; en mouvement, le courant arrache la
-		/// poussiere en proportion de la distance parcourue (washLength).
-		/// Toute la piece s'estompe d'un bloc, sans distinguer la partie
-		/// immergee - approximation assumee.
+		/// L'eau lave la poussiere (pas la brulure). Le taux (1/s) croit avec
+		/// la part immergee de la piece et avec sa vitesse dans l'eau :
+		/// immobile, elle trempe lentement (soakTime) ; en mouvement, le
+		/// courant arrache la poussiere en proportion de la distance parcourue
+		/// (washLength). Toute la piece s'estompe d'un bloc, sans distinguer la
+		/// partie immergee - approximation assumee.
 		/// </summary>
-		private void Wash()
+		private float WashRate()
 		{
-			if (dose <= 0f || IsCleaning) {
-				return;
-			}
 			var body = vessel.mainBody;
 			if (body == null || !body.ocean) {
-				return;
+				return 0f;
 			}
 
 			var pos = part.transform.position;
@@ -243,11 +257,33 @@ namespace Losket
 				speed = (float)vessel.srfSpeed;
 			}
 			if (wet < 0.01f) {
-				return;
+				return 0f;
 			}
+			return wet * (1f / Mathf.Max(soakTime, 0.1f) + speed / Mathf.Max(washLength, 0.1f));
+		}
 
-			var rate = wet * (1f / Mathf.Max(soakTime, 0.1f) + speed / Mathf.Max(washLength, 0.1f));
+		/// <summary>
+		/// Le vent relatif arrache la poussiere quand la pression dynamique
+		/// depasse airMinQ : un avion rapide ou une rentree se nettoient avec
+		/// le temps, un rover ou une descente sous moteurs jamais. Le taux
+		/// (1/s) croit lineairement au-dela du seuil. La pression est celle du
+		/// vaisseau, et toute la piece s'estompe d'un bloc, face au vent ou
+		/// non - meme approximation que le lavage. Les pieces sous coiffe ou en
+		/// soute sont deja ecartees par l'appelant.
+		/// </summary>
+		private float AirRate()
+		{
+			var minQ = Mathf.Max(airMinQ, 0.1f);
+			var q = (float)vessel.dynamicPressurekPa;
+			if (q <= minQ) {
+				return 0f;
+			}
+			return (q - minQ) / minQ / Mathf.Max(airTime, 0.1f);
+		}
 
+		/// <summary>Fait decroitre le recouvrement au taux donne (1/s).</summary>
+		private void Fade(float rate)
+		{
 			// On fait decroitre le recouvrement VISIBLE, pas la dose : celle-ci
 			// sature (1 - e^-dose/doseScale), et une piece tres sale resterait
 			// longtemps inchangee a l'ecran avant de commencer a palir.

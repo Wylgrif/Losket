@@ -81,14 +81,16 @@ namespace Losket
 				}
 				for (var e = 0; e < source.EngineCount; e++) {
 					if (!source.EngineIsCold(e)) {
-						ProcessEngine(source, source.Engine(e), dt, rate);
+						ProcessEngine(source, source.Engine(e), dt, rate, source.OthersRate(e));
 					}
 				}
 			}
 		}
 
+		/// <param name="othersRate">Facteur sur le marquage des autres pieces
+		/// (reduit pour un reacteur, voir airBreathingRate).</param>
 		private static void ProcessEngine(ModuleLosketExhaust source, ModuleEngines engine,
-			float dt, float rate)
+			float dt, float rate, float othersRate)
 		{
 			if (engine == null || !engine.EngineIgnited || engine.finalThrust <= 0.01f) {
 				return;
@@ -130,6 +132,9 @@ namespace Losket
 				}
 
 				// 2 a 4. Tout ce que le jet rencontre.
+				if (othersRate <= 0f) {
+					continue;
+				}
 				var modules = ModuleLosketExhaust.Loaded;
 				for (var i = 0; i < modules.Count; i++) {
 					var target = modules[i];
@@ -150,7 +155,7 @@ namespace Losket
 					if (!target.AffectedByExhaust) {
 						continue;
 					}
-					Expose(ref plume, source.part, target, dt * rate);
+					Expose(ref plume, source.part, target, dt * rate * othersRate);
 				}
 			}
 		}

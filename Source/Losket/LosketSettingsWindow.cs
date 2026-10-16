@@ -72,6 +72,8 @@ namespace Losket
 				                " : x" + settings.dustRate.ToString("0.##"));
 				var log = GUILayout.HorizontalSlider(Mathf.Log10(settings.dustRate), -1f, 1f);
 				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
+				settings.dustInVacuum = GUILayout.Toggle(settings.dustInVacuum,
+					Localizer.Format("#LOC_Losket_Set_DustVacuum"));
 				GUILayout.Space(6f);
 				settings.exhaustMarks = GUILayout.Toggle(settings.exhaustMarks,
 					Localizer.Format("#LOC_Losket_Set_Exhaust"));

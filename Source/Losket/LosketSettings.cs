@@ -37,6 +37,13 @@ namespace Losket
 			logBase = 10f, stepCount = 21, displayFormat = "F2")]
 		public float dustRate = 1f;
 
+		/// <summary>Poussiere soulevee aussi dans le vide (Mun, Minmus...).
+		/// Decoche, le seuil de pression de Configs/losket-settings.cfg
+		/// s'applique.</summary>
+		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DustVacuum",
+			toolTip = "#LOC_Losket_Set_DustVacuumTip")]
+		public bool dustInVacuum = false;
+
 		/// <summary>Marques laissees par les panaches de moteurs. S'applique
 		/// aux pieces dont "Affecte par" comprend la brulure.</summary>
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_Exhaust",
@@ -58,6 +65,15 @@ namespace Losket
 		{
 			var s = Instance;
 			return s != null ? Mathf.Clamp(s.dustRate, 0.1f, 10f) : 1f;
+		}
+
+		/// <summary>Pression (atm) sous laquelle les moteurs ne soulevent pas
+		/// de poussiere : 0 si la case "dans le vide" est cochee, sinon le
+		/// seuil du cfg.</summary>
+		public static float DustMinPressureAtm()
+		{
+			var s = Instance;
+			return s != null && s.dustInVacuum ? 0f : LosketBootstrap.DustMinPressureAtm;
 		}
 
 		/// <summary>Vrai si les panaches de moteurs marquent les pieces.</summary>
