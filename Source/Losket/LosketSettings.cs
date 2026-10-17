@@ -20,7 +20,27 @@ namespace Losket
 		public override string DisplaySection { get { return Localizer.Format("#LOC_Losket_Group"); } }
 		public override int SectionOrder { get { return 1; } }
 		public override GameParameters.GameMode GameMode { get { return GameParameters.GameMode.ANY; } }
-		public override bool HasPresets { get { return false; } }
+		/// <summary>Seule la perte solaire suit les prereglages de difficulte :
+		/// c'est le seul reglage qui touche au jeu et pas seulement au visuel.</summary>
+		public override bool HasPresets { get { return true; } }
+
+		public override void SetDifficultyPreset(GameParameters.Preset preset)
+		{
+			switch (preset) {
+				case GameParameters.Preset.Easy:
+					solarDustLoss = 0f;
+					break;
+				case GameParameters.Preset.Normal:
+					solarDustLoss = 0.5f;
+					break;
+				case GameParameters.Preset.Moderate:
+					solarDustLoss = 0.7f;
+					break;
+				case GameParameters.Preset.Hard:
+					solarDustLoss = 1f;
+					break;
+			}
+		}
 
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_Burn",
 			toolTip = "#LOC_Losket_Set_BurnTip")]
@@ -43,6 +63,17 @@ namespace Losket
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DustVacuum",
 			toolTip = "#LOC_Losket_Set_DustVacuumTip")]
 		public bool dustInVacuum = false;
+
+		/// <summary>Part de la puissance d'un panneau solaire perdue sous une
+		/// couche de poussiere complete, proportionnelle au recouvrement. 0 =
+		/// la poussiere n'a aucun effet sur les panneaux. Suit le prereglage de
+		/// difficulte (facile 0 %, normal 50 %, modere 70 %, difficile 100 %).
+		/// asPercentage multiplie deja par 100 et ajoute le signe : le format
+		/// doit rester un simple F0.</summary>
+		[GameParameters.CustomFloatParameterUI("#LOC_Losket_Set_SolarLoss",
+			toolTip = "#LOC_Losket_Set_SolarLossTip", minValue = 0f, maxValue = 1f,
+			stepCount = 21, displayFormat = "F0", asPercentage = true)]
+		public float solarDustLoss = 0.5f;
 
 		/// <summary>Marques laissees par les panaches de moteurs. S'applique
 		/// aux pieces dont "Affecte par" comprend la brulure.</summary>
@@ -74,6 +105,14 @@ namespace Losket
 		{
 			var s = Instance;
 			return s != null && s.dustInVacuum ? 0f : LosketBootstrap.DustMinPressureAtm;
+		}
+
+		/// <summary>Perte de puissance solaire a recouvrement complet, 0 sans
+		/// partie chargee.</summary>
+		public static float SolarDustLoss()
+		{
+			var s = Instance;
+			return s != null ? Mathf.Clamp01(s.solarDustLoss) : 0f;
 		}
 
 		/// <summary>Vrai si les panaches de moteurs marquent les pieces.</summary>

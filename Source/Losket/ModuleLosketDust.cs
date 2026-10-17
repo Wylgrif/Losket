@@ -55,6 +55,20 @@ namespace Losket
 		/// pas encore de reference.</summary>
 		private double lastStormUT = -1.0;
 
+		// --- Panneaux solaires (voir ApplySolarLoss) ---
+
+		/// <summary>Une ressource produite par un panneau solaire de la piece,
+		/// avec le debit propre (sans poussiere) et le dernier debit ecrit.</summary>
+		private class SolarOutput
+		{
+			public ModuleResource Resource;
+			public double Base;
+			public double Written;
+		}
+
+		private readonly System.Collections.Generic.List<SolarOutput> solarOutputs =
+			new System.Collections.Generic.List<SolarOutput>();
+
 		/// <summary>Part de la dose deposee en gerbe rasante (vide). Un
 		/// atterrisseur qui a connu la Mun puis Kerbin garde le melange.</summary>
 		[KSPField(isPersistant = true)] public float ringAccum;
@@ -150,6 +164,7 @@ namespace Losket
 				: null;
 			owner = part.FindModuleImplementing<ModuleLosketBurn>();
 			stowage = LosketStowage.For(part);
+			CollectSolarOutputs();
 
 			// Meme garantie que la brulure : pas de tir depuis le pas de tir
 			// avec de la poussiere d'une vie anterieure.
@@ -169,6 +184,9 @@ namespace Losket
 				lastStormUT = -1.0;
 				return;
 			}
+			// Avant tout : si la poussiere est coupee pour la piece, le
+			// facteur revient a 1 et le debit propre est retabli.
+			ApplySolarLoss();
 			if (!DustEnabled) {
 				lastStormUT = -1.0;
 				return;
@@ -237,6 +255,77 @@ namespace Losket
 			LosketEnvelope.Track(part, stowage, ref envState, ref envMin, ref envMax, ref envTick);
 			var ground = source.GroundColor;
 			colorAccum += new Vector3(ground.r, ground.g, ground.b) * ddose;
+		}
+
+		// --- Panneaux solaires ---
+
+		/// <summary>Recense les ressources produites par les panneaux solaires
+		/// de la piece. Le debit relu ici est celui du cfg : KSP ne sauvegarde
+		/// pas les debits du resHandler, une partie rechargee repart propre.</summary>
+		private void CollectSolarOutputs()
+		{
+			solarOutputs.Clear();
+			for (var i = 0; i < part.Modules.Count; i++) {
+				var panel = part.Modules[i] as ModuleDeployableSolarPanel;
+				if (panel == null || panel.resHandler == null) {
+					continue;
+				}
+				var outputs = panel.resHandler.outputResources;
+				for (var j = 0; j < outputs.Count; j++) {
+					var res = outputs[j];
+					if (res == null) {
+						continue;
+					}
+					solarOutputs.Add(new SolarOutput { Resource = res, Base = res.rate, Written = res.rate });
+				}
+			}
+		}
+
+		/// <summary>
+		/// Une couche de poussiere fait de l'ombre au panneau : le debit de
+		/// chaque ressource produite est ramene a (1 - perte x recouvrement)
+		/// fois son debit propre. On agit sur le debit du resHandler, que le
+		/// panneau lit a chaque tick, plutot que sur ses champs prives : c'est
+		/// ce que le jeu affiche dans "Flux d'energie", et rien n'est sauve.
+		///
+		/// Si quelqu'un d'autre a touche le debit depuis notre derniere
+		/// ecriture, on adopte sa valeur comme nouveau debit propre : Kopernicus
+		/// le met a zero pour produire lui-meme l'electricite (plusieurs
+		/// etoiles) et ne doit pas se retrouver avec la production stock en
+		/// double. Dans ce cas la poussiere n'a plus d'effet sur le panneau.
+		/// </summary>
+		private void ApplySolarLoss()
+		{
+			if (solarOutputs.Count == 0) {
+				return;
+			}
+			// Poussiere recue entierement repliee : elle est sur le boitier, les
+			// cellules sont restees a l'abri (meme regle que le rendu, qui
+			// decoupe tout ce qui sort de l'enveloppe). Pas de perte.
+			var cover = DustEnabled && envState != LosketEnvelope.Stowed ? DustMag : 0f;
+			var factor = 1f - LosketSettings.SolarDustLoss() * cover;
+			for (var i = 0; i < solarOutputs.Count; i++) {
+				var o = solarOutputs[i];
+				var res = o.Resource;
+				if (System.Math.Abs(res.rate - o.Written) > 1e-9) {
+					o.Base = res.rate;
+				}
+				o.Written = o.Base * factor;
+				res.rate = o.Written;
+			}
+		}
+
+		/// <summary>Rend aux panneaux leur debit propre (piece detruite, module
+		/// retire).</summary>
+		private void RestoreSolarOutputs()
+		{
+			for (var i = 0; i < solarOutputs.Count; i++) {
+				var o = solarOutputs[i];
+				if (o.Resource != null && System.Math.Abs(o.Resource.rate - o.Written) <= 1e-9) {
+					o.Resource.rate = o.Base;
+				}
+			}
+			solarOutputs.Clear();
 		}
 
 		/// <summary>
@@ -440,6 +529,7 @@ namespace Losket
 
 		private void OnDestroy()
 		{
+			RestoreSolarOutputs();
 			if (rig != null) {
 				rig.Destroy();
 				rig = null;

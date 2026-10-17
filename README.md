@@ -84,6 +84,22 @@ nothing changes. A cloud layer counts as a storm when its name contains
 (`stormDust`, `stormLayerKeyword`, `stormCoverageMin`, `stormCoverageMax`,
 `stormDustTime`) live in `GameData/Losket/Configs/losket-settings.cfg`.
 
+### Dusty solar panels
+
+Dust shades solar panels. A panel's output drops in proportion to its dust
+cover. The **Solar power lost under full dust** slider in the Losket settings
+sets the loss at full cover and follows the difficulty preset: Easy 0% (no
+effect), Normal 50%, Moderate 70%, Hard 100%. On Normal, a panel under a full
+layer of dust produces half its clean output, a half-covered one 75%. The part
+menu's energy flow shows the reduced figure. Water,
+fast flight and an engineer's cleaning restore the output along with the
+finish. A panel that collected its dust while folded keeps its full output:
+the dust is on the housing, the cells stayed clean, and that is also how it is
+drawn.
+
+With Kopernicus installed, panels are powered by Kopernicus itself and dust
+does not affect them.
+
 ## Engine exhaust
 
 Anything that sits in an engine's exhaust gets marked: the stage below during a

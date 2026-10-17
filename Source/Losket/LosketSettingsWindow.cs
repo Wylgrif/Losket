@@ -74,6 +74,12 @@ namespace Losket
 				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
 				settings.dustInVacuum = GUILayout.Toggle(settings.dustInVacuum,
 					Localizer.Format("#LOC_Losket_Set_DustVacuum"));
+				// Curseur lineaire par pas de 5 % : 0 % = les panneaux ignorent
+				// la poussiere.
+				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_SolarLoss") +
+				                " : " + settings.solarDustLoss.ToString("P0"));
+				var loss = GUILayout.HorizontalSlider(settings.solarDustLoss, 0f, 1f);
+				settings.solarDustLoss = Mathf.Round(loss * 20f) / 20f;
 				GUILayout.Space(6f);
 				settings.exhaustMarks = GUILayout.Toggle(settings.exhaustMarks,
 					Localizer.Format("#LOC_Losket_Set_Exhaust"));
