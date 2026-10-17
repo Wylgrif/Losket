@@ -68,11 +68,12 @@ namespace Losket
 		/// couche de poussiere complete, proportionnelle au recouvrement. 0 =
 		/// la poussiere n'a aucun effet sur les panneaux. Suit le prereglage de
 		/// difficulte (facile 0 %, normal 50 %, modere 70 %, difficile 100 %).
-		/// asPercentage multiplie deja par 100 et ajoute le signe : le format
-		/// doit rester un simple F0.</summary>
+		/// Pas d'asPercentage : le menu de difficulte arrondit la valeur
+		/// brute (0..1) avec displayFormat, et "F0" la ramenait a 0 ou 1. Avec
+		/// "P0" il arrondit sur les pourcents et affiche lui-meme "50 %".</summary>
 		[GameParameters.CustomFloatParameterUI("#LOC_Losket_Set_SolarLoss",
 			toolTip = "#LOC_Losket_Set_SolarLossTip", minValue = 0f, maxValue = 1f,
-			stepCount = 21, displayFormat = "F0", asPercentage = true)]
+			stepCount = 21, displayFormat = "P0")]
 		public float solarDustLoss = 0.5f;
 
 		/// <summary>Marques laissees par les panaches de moteurs. S'applique
