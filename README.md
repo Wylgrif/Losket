@@ -195,7 +195,7 @@ is opaque, a partial one lets the reflection through in proportion, and a
 
 ## Compatibility
 
-Tested against Deferred, Restock, TURD and TexturesUnlimited, ShineFix, and
+Tested against Deferred, Restock, TURD and TexturesUnlimited (version 1.6.0.26 and later for better behavior), ShineFix, and
 against modded parts.
 
 ## Languages
