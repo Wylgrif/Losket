@@ -86,6 +86,13 @@ namespace Losket
 		/// d'origine (brulure de rentree, poussiere).</summary>
 		public float NoiseWarp;
 
+		/// <summary>Reflets eteints par le depot, 0..1. A 1 (suie, poussiere), la
+		/// couche mate la surface a proportion de sa couverture ; a 0 (metal
+		/// brule), le depot colore sans eteindre. Le revenu n'est jamais mat.
+		/// N'a d'effet separe du fondu alpha qu'en rendu differe (mod Deferred),
+		/// ou le shader reduit le speculaire du G-buffer.</summary>
+		public float Matte;
+
 		/// <summary>Enveloppe de depot en espace piece (voir LosketEnvelope) :
 		/// hors de cette boite, rien n'est rendu.</summary>
 		public bool UseEnvelope;
@@ -119,6 +126,7 @@ namespace Losket
 				SootGain = 1f,
 				SpotCut = 0f,
 				NoiseWarp = 0f,
+				Matte = 1f,
 			};
 		}
 	}
@@ -162,6 +170,16 @@ namespace Losket
 		private Transform partTransform;
 		/// <summary>File de rendu par defaut du shader d'overlay (Geometry+100).</summary>
 		private int defaultQueue;
+
+		/// <summary>Shader d'overlay "avant" (fondu alpha) recu a la creation. La
+		/// variante differee est prise dans le bundle quand la source s'y prete
+		/// (voir PickShader).</summary>
+		private Shader forwardShader;
+
+		/// <summary>Shader du materiau source de chaque overlay, tel que vu a la
+		/// derniere verification : s'il change (B9PartSwitch, remplacement
+		/// tardif par un autre mod), la variante d'overlay est rechoisie.</summary>
+		private readonly List<Shader> sourceShaders = new List<Shader>();
 
 		private struct BaseMask
 		{
@@ -340,6 +358,7 @@ namespace Losket
 		{
 			var rig = new LosketOverlayRig(ownerId, overlayName);
 			rig.partTransform = part.transform;
+			rig.forwardShader = shader;
 
 			var stale = 0;
 			foreach (var t in part.GetComponentsInChildren<Transform>(true)) {
@@ -358,7 +377,9 @@ namespace Losket
 				go.transform.SetParent(source.transform, false);
 				go.layer = source.gameObject.layer;
 
-				var material = new Material(shader);
+				// Variante avant ou differee selon le shader de la piece.
+				var sourceMat = source.sharedMaterial;
+				var material = new Material(PickShader(shader, sourceMat));
 				rig.defaultQueue = material.renderQueue;
 				if (LosketBootstrap.TemperLut != null) {
 					material.SetTexture("_TemperLut", LosketBootstrap.TemperLut);
@@ -370,7 +391,6 @@ namespace Losket
 				// cutout/transparent. Sur les shaders opaques de KSP, l'alpha de
 				// _MainTex encode la specularite : le prendre pour un masque
 				// effacerait le depot sur les zones mates.
-				var sourceMat = source.sharedMaterial;
 				var mask = new BaseMask();
 				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null &&
 				    IsCutoutFamily(sourceMat.shader.name)) {
@@ -412,6 +432,7 @@ namespace Losket
 
 				rig.overlays.Add(renderer);
 				rig.sources.Add(source);
+				rig.sourceShaders.Add(sourceMat != null ? sourceMat.shader : null);
 				rig.materials.Add(material);
 				rig.materialSlots.Add(slots);
 				rig.meshBounds.Add(bounds);
@@ -445,6 +466,18 @@ namespace Losket
 					continue;
 				}
 				var srcMat = src.sharedMaterial;
+
+				// Le shader de base a change (B9PartSwitch, remplacement tardif
+				// par un autre mod) : la variante d'overlay est rechoisie. Les
+				// proprietes du materiau survivent au changement de shader.
+				var srcShader = srcMat != null ? srcMat.shader : null;
+				if (!ReferenceEquals(srcShader, sourceShaders[i])) {
+					sourceShaders[i] = srcShader;
+					var want = PickShader(forwardShader, srcMat);
+					if (!ReferenceEquals(m.shader, want)) {
+						m.shader = want;
+					}
+				}
 
 				// Le masque alpha suit la texture d'origine : FlagDecal change
 				// le drapeau (choix de mission, miroir) apres la creation du
@@ -551,6 +584,7 @@ namespace Losket
 				m.SetFloat("_SootGain", p.SootGain);
 				m.SetFloat("_SpotCut", p.SpotCut);
 				m.SetFloat("_NoiseWarp", p.NoiseWarp);
+				m.SetFloat("_Matte", p.Matte);
 
 				// Le point d'impact est stocke en espace piece ; le shader
 				// travaille en espace motif, comme pour le bruit.
@@ -607,6 +641,44 @@ namespace Losket
 			materialSlots.Clear();
 			meshBounds.Clear();
 			baseMasks.Clear();
+			sourceShaders.Clear();
+		}
+
+		private static Shader deferredShader;
+		private static bool deferredLookedUp;
+
+		/// <summary>
+		/// Choisit la variante d'overlay d'apres le shader de BASE. Sur une
+		/// camera en rendu differe (mod Deferred), Unity ne rend dans le
+		/// G-buffer que les objets dont le shader a une passe "Deferred" ; les
+		/// autres (TexturesUnlimited 1.5, Shaddy, vieux decals...) sont dessines
+		/// en avant, APRES l'eclairage differe. Un decal G-buffer pose sur une
+		/// telle piece serait recouvert par elle - c'etait le Mk3 TURD sans
+		/// aucune marque : il lui faut l'overlay avant, fondu par-dessus.
+		/// Unity 2019 n'expose pas les tags des passes au runtime, on se fie a
+		/// leur NOM : "DEFERRED" est celui que generent les surface shaders et
+		/// le Standard - donc les shaders de remplacement de Deferred et ceux de
+		/// TU 1.6. Dans le doute, l'overlay avant : il marche partout, il laisse
+		/// seulement filtrer les reflets. Sans Deferred, les deux variantes se
+		/// rendent a l'identique.
+		/// </summary>
+		private static Shader PickShader(Shader forward, Material sourceMat)
+		{
+			if (!deferredLookedUp) {
+				deferredLookedUp = true;
+				deferredShader = LosketBootstrap.GetShader("Losket/BurnOverlayDeferred");
+			}
+			if (deferredShader == null || !RendersDeferred(sourceMat)) {
+				return forward;
+			}
+			return deferredShader;
+		}
+
+		/// <summary>Vrai si le materiau a une passe nommee DEFERRED, donc si
+		/// une camera en rendu differe le dessine dans le G-buffer.</summary>
+		public static bool RendersDeferred(Material m)
+		{
+			return m != null && m.shader != null && m.FindPass("DEFERRED") >= 0;
 		}
 
 		/// <summary>Famille de shaders a decoupe/transparence dont l'alpha de la

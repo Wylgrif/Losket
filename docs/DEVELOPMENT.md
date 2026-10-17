@@ -120,3 +120,32 @@ the metadata.
 **Graphics APIs.** The bundle is compiled for Direct3D11 and OpenGLCore.
 Without OpenGLCore, shaders appear magenta for players launching KSP with
 `-force-glcore`.
+
+**Two overlay shaders.** The deposit maths live in `LosketBurnOverlay.cginc`,
+shared by `Losket/BurnOverlay` (a `ForwardBase` pass only: alpha blend over
+the lit image) and `Losket/BurnOverlayDeferred` (a `Deferred` G-buffer pass
+plus the same forward pass as fallback). `LosketOverlayRig.PickShader`
+chooses per overlay from the *base* material: the deferred variant only when
+that material has a pass named `DEFERRED`, which is what surface shaders and
+the Standard shader generate, hence what Deferred's replacement shaders and
+TexturesUnlimited 1.6 carry. Unity 2019.4 exposes pass names at runtime
+(`Material.FindPass`) but not pass tags. The rule matters because, on a
+deferred camera, Unity draws objects whose shader has no deferred pass in
+forward, *after* the deferred lighting: a G-buffer decal on such a part
+(TexturesUnlimited 1.5, Shaddy) is simply painted over, which is how the
+TURD Mk3 lost all its marks. The rig re-checks the base shader every frame
+and swaps the overlay's shader if it changed. Without the Deferred mod the
+camera is forward and both variants render the same pass.
+
+**G-buffer pass.** Unity picks it on cameras in deferred shading (the Deferred
+mod switches the flight, editor and IVA cameras to it) when the overlay's
+render queue is opaque (2500 or below), and the forward pass otherwise: a
+transparent base part pushes the overlay queue past 2500. The pass writes
+only RT0 (albedo, alpha blend, occlusion kept) and RT1 (specular multiplied
+by `1 - coverage`, smoothness likewise), and masks RT2 (normals) and RT3
+(emission), so the deposit is lit by Deferred with the part's own normal map
+and shadows. Per-target blend states need Direct3D11 or OpenGL 4.0+.
+Deferred's replacement shaders zero the SH ambient in their deferred pass and
+compute ambient later from the G-buffer, which is why the pass does not touch
+RT3. The in-flight diagnostic (`DumpRenderState`, developer sliders option)
+logs the camera's actual rendering path and each overlay's shader.

@@ -90,6 +90,17 @@ namespace Losket
 			});
 			GUILayout.EndHorizontal();
 
+			// Reflets sous le depot : eteints (suie, poussiere) ou conserves
+			// (metal brule). Voir _Matte dans le shader.
+			GUILayout.Space(4f);
+			GUILayout.BeginHorizontal();
+			GUILayout.Label(Localizer.Format("#LOC_Losket_Win_Reflections"), GUILayout.Width(110f));
+			m.matte = GUILayout.Toolbar(m.matte ? 0 : 1, new[] {
+				Localizer.Format("#LOC_Losket_Win_ReflDimmed"),
+				Localizer.Format("#LOC_Losket_Win_ReflKept"),
+			}) == 0;
+			GUILayout.EndHorizontal();
+
 			GUILayout.Space(8f);
 			GUILayout.Label(Localizer.Format("#LOC_Losket_Win_Presets"));
 			GUILayout.BeginHorizontal();

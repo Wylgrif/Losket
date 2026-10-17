@@ -113,6 +113,11 @@ namespace Losket
 		[KSPField(isPersistant = true)] public float pattern;
 		[KSPField(isPersistant = true)] public float bleach;
 
+		/// <summary>Reflets eteints par le depot : la suie mate la surface a
+		/// proportion de sa couverture. Faux pour un metal qui reste poli sous
+		/// sa brulure. La poussiere est toujours mate, le revenu jamais.</summary>
+		[KSPField(isPersistant = true)] public bool matte = true;
+
 		private LosketOverlayRig rig;
 		private Shader shader;
 		private bool editorPreview;
@@ -381,19 +386,20 @@ namespace Losket
 					// Matte, noire, bords un peu flous, pas d'irisation.
 					sootR = 0.05f; sootG = 0.048f; sootB = 0.045f;
 					temperIntensity = 0.15f; sharpness = 1.3f; streak = 1f;
-					noiseScale = 3f; pattern = 0f; bleach = 0f;
+					noiseScale = 3f; pattern = 0f; bleach = 0f; matte = true;
 					break;
 				case LosketKeys.PresetMetal:
-					// Gris clair, plus net, plein bleu de chauffe.
+					// Gris clair, plus net, plein bleu de chauffe ; le metal reste
+					// poli sous sa brulure.
 					sootR = 0.35f; sootG = 0.35f; sootB = 0.36f;
 					temperIntensity = 1f; sharpness = 2.5f; streak = 1.5f;
-					noiseScale = 4f; pattern = 0f; bleach = 0.15f;
+					noiseScale = 4f; pattern = 0f; bleach = 0.15f; matte = false;
 					break;
 				case LosketKeys.PresetStreaks:
 					// Trainees blanchies type Starship.
 					sootR = 0.5f; sootG = 0.48f; sootB = 0.45f;
 					temperIntensity = 0.3f; sharpness = 4.5f; streak = 10f;
-					noiseScale = 6f; pattern = 1f; bleach = 0.85f;
+					noiseScale = 6f; pattern = 1f; bleach = 0.85f; matte = true;
 					break;
 				default:
 					return;
@@ -427,6 +433,10 @@ namespace Losket
 		{
 			var id = part.partInfo.name + "#" + GetInstanceID();
 			LosketBootstrap.Log("=== DumpRenderState " + id + " ===");
+			// Le chemin de rendu dit quelle passe du shader est en service :
+			// DeferredShading = decal dans le G-buffer, Forward = fondu alpha.
+			LosketBootstrap.Log("  camera=" + (Camera.main != null
+				? Camera.main.actualRenderingPath.ToString() : "?") + " matte=" + matte);
 			LosketBootstrap.Log("  affectedBy=" + affectedBy + " dose=" + dose.ToString("0") +
 				" mag=" + BurnMag.ToString("0.00") +
 				" peak=" + peakSkinTemp.ToString("0") + "K" +
@@ -455,6 +465,7 @@ namespace Losket
 					? srcRenderer.sharedMaterial.shader.name : "?";
 				LosketBootstrap.Log("  overlay[" + i + "] source='" + srcName +
 					"' shaderBase='" + srcShader +
+					"' overlay='" + (m.shader != null ? m.shader.name : "?") +
 					"' useBaseAlpha=" + m.GetFloat("_UseBaseAlpha").ToString("0") +
 					" visible=" + r.isVisible +
 					" _BurnMag=" + m.GetFloat("_BurnMag").ToString("0.00"));
@@ -713,6 +724,7 @@ namespace Losket
 			p.Pattern = pattern;
 			p.Bleach = bleach;
 			p.DepositColor = new Color(sootR, sootG, sootB);
+			p.Matte = matte ? 1f : 0f;
 			return p;
 		}
 

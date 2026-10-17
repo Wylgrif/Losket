@@ -35,9 +35,10 @@ Losket group:
   is lighter, sharper, and shows the full blue heat tint. Streaks is bleached
   and elongated, closer to how Starship comes back.
 - Advanced settings — opens a window with the individual sliders: deposit
-  colour, heat tint, bleaching, sharpness, pattern scale, streak length, and a
-  blend between blotches and streaks. Touching any slider switches the preset to
-  Custom.
+  colour, heat tint, bleaching, sharpness, pattern scale, streak length, a
+  blend between blotches and streaks, and a Reflections switch (see
+  [Reflective surfaces](#reflective-surfaces)). Touching any slider switches
+  the preset to Custom.
 - Preview scorching — shows the effect in the editor without flying.
 - Exhaust: scorching / no heat — on engine parts only. Propellers, turboprops
   and lift fans are guessed from their part name and start as "no heat", so
@@ -164,6 +165,33 @@ Duna's air is too thin to clean anything. The rates are `airMinQ` and
 The Losket settings (toolbar button, or Difficulty > Losket) have a **Dust
 rate** slider from x0.1 to x10. It scales how fast dust settles at the moment
 it lands; dust already on a part is not changed.
+
+## Reflective surfaces
+
+Soot and dust are matte. A layer of either takes away the reflections of the
+surface underneath in proportion to how much of it the layer covers: a
+half-covered panel keeps half of its shine, a fully covered one keeps none.
+A heat tint is different. It is a thin film of oxide on polished metal, so a
+blued surface keeps its mirror finish and reflects with a blue cast.
+
+The **Reflections** switch in a part's advanced settings says how its
+scorching behaves. *Dimmed* (the Soot and Streaks presets) treats the deposit
+as soot. *Kept* (the Metal preset) colours the surface without taking its
+shine away, for stainless steel and other bare metal that comes back
+discoloured but still bright. Dust is always matte, and the heat tint never
+is. Exhaust marks follow the switch of the part they land on.
+
+With Deferred installed, Losket writes its marks into the G-buffer, so the
+gloss of the surface is reduced before it is lit: reflections from Deferred's
+probes and screen-space reflections, TexturesUnlimited metals and ShineFix
+finishes all fade under the dust, and the part keeps its normal map and its
+shadows under the soot. This needs the part's own shader to render in
+deferred too: parts drawn by a forward-only shader, such as TexturesUnlimited
+before 1.6.0.26 (the version Deferred itself requires), keep the blended
+overlay described next. Without Deferred the marks are blended over the lit
+image, so a reflection can only be hidden by covering it: a full matte layer
+is opaque, a partial one lets the reflection through in proportion, and a
+*Kept* deposit stays slightly see-through so the shine below shows.
 
 ## Compatibility
 
