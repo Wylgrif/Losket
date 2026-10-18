@@ -97,6 +97,7 @@ namespace Losket
 				}
 				LosketStorms.LoadConfig(node);
 			}
+			LosketStorms.LoadLayers();
 			Log("poussiere soulevee a partir de " + DustMinPressureAtm.ToString("0.###") +
 			    " atm" + (DustMinPressureAtm <= 0f ? " (vide compris)" : ""));
 		}

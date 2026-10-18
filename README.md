@@ -81,9 +81,12 @@ dust storms slowly gets covered in Duna dust, from above: landed, flying or
 under time warp. A full storm covers a part in about two game hours. Losket
 only reads the storm coverage the clouds mod already computes; without it,
 nothing changes. A cloud layer counts as a storm when its name contains
-"dust", so planet packs that follow the same naming work too. The settings
-(`stormDust`, `stormLayerKeyword`, `stormCoverageMin`, `stormCoverageMax`,
-`stormDustTime`) live in `GameData/Losket/Configs/losket-settings.cfg`.
+"dust", so planet packs that follow the same naming work too. Duna's thin
+scattered dust hazes deposit five times less than its big storms; each layer's
+weight is a `LOSKET_STORM_LAYER` node that planet packs can add with a
+ModuleManager patch. The settings (`stormDust`, `stormLayerKeyword`,
+`stormCoverageMin`, `stormCoverageMax`, `stormDustTime`) live in
+`GameData/Losket/Configs/losket-settings.cfg`.
 
 ### Dusty solar panels
 

@@ -48,6 +48,12 @@ namespace Losket
 		/// couvre une piece a ~63 %.</summary>
 		public static float DustTime = 7200f;
 
+		/// <summary>Poids par couche (noeuds LOSKET_STORM_LAYER), 1 sans
+		/// entree. Les voiles de poussiere diffuse de Duna sont tres fins a
+		/// cote des grandes tempetes : ils salissent moins.</summary>
+		private static readonly System.Collections.Generic.Dictionary<string, float> layerWeights =
+			new System.Collections.Generic.Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+
 		// --- Etat de la reflexion ---
 
 		private enum State { Unknown, Ready, Off }
@@ -75,6 +81,31 @@ namespace Losket
 			DustTime = Mathf.Max(DustTime, 1f);
 		}
 
+		/// <summary>Lit les poids par couche :
+		/// LOSKET_STORM_LAYER { name = Duna-dust-scattered  weight = 0.2 }.</summary>
+		internal static void LoadLayers()
+		{
+			layerWeights.Clear();
+			foreach (var node in GameDatabase.Instance.GetConfigNodes("LOSKET_STORM_LAYER")) {
+				var name = node.GetValue("name");
+				var weight = 1f;
+				if (string.IsNullOrEmpty(name) || !node.TryGetValue("weight", ref weight)) {
+					LosketBootstrap.LogWarning("noeud LOSKET_STORM_LAYER incomplet ignore (name=" + name + ")");
+					continue;
+				}
+				layerWeights[name] = Mathf.Max(0f, weight);
+			}
+			if (layerWeights.Count > 0) {
+				LosketBootstrap.Log("tempetes : " + layerWeights.Count + " poids de couche(s)");
+			}
+		}
+
+		private static float LayerWeight(string name)
+		{
+			float weight;
+			return name != null && layerWeights.TryGetValue(name, out weight) ? weight : 1f;
+		}
+
 		/// <summary>
 		/// Intensite de tempete de poussiere (0..1) au point donne, maximum sur
 		/// les couches de tempete de l'astre. 0 sans Volumetric Clouds, hors
@@ -95,6 +126,10 @@ namespace Losket
 					if (obj == null || !IsStormLayer(obj, body)) {
 						continue;
 					}
+					var weight = LayerWeight(nameProp.GetValue(obj, null) as string);
+					if (weight <= 0f) {
+						continue;
+					}
 					var volume = volumeProp.GetValue(obj, null);
 					if (volume == null || !(bool)volumeEnabled.GetValue(volume, null)) {
 						continue;
@@ -103,7 +138,7 @@ namespace Losket
 					sampleArgs[1] = 0f;
 					sampleArgs[2] = false;      // pas de test de rayon : on est au sol
 					var coverage = (float)sampleCoverage.Invoke(volume, sampleArgs);
-					var intensity = Mathf.Clamp01((coverage - CoverageMin) /
+					var intensity = weight * Mathf.Clamp01((coverage - CoverageMin) /
 						Mathf.Max(CoverageMax - CoverageMin, 1e-3f));
 					if (intensity > best) {
 						best = intensity;
