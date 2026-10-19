@@ -479,15 +479,17 @@ namespace Losket
 			var tint = dose > 0f ? colorAccum / dose : new Vector3(0.5f, 0.45f, 0.4f);
 			var dustColor = new Color(tint.x, tint.y, tint.z);
 
-			// Aux forts recouvrements, la couche est epaisse : on sature la
-			// teinte pour qu'elle domine visuellement (sans cela, un vaisseau
-			// couvert de poussiere de Duna reste a peine rougeatre).
+			// Aux forts recouvrements, la couche est epaisse : on sature un
+			// peu la teinte pour qu'elle domine visuellement. Le facteur etait
+			// de 1.7 quand dust-colors.cfg n'etait pas lu et que tout etait
+			// gris-brun ; avec les vraies couleurs il transformait l'ocre de
+			// Duna en orange vif, d'ou 1.2.
 			var thickness = Mathf.InverseLerp(0.85f, 1f, mag);
 			if (thickness > 0f) {
 				float h, s, v;
 				Color.RGBToHSV(dustColor, out h, out s, out v);
-				s = Mathf.Min(1f, s * (1f + 0.7f * thickness));
-				v = Mathf.Min(1f, v * (1f + 0.12f * thickness));
+				s = Mathf.Min(1f, s * (1f + 0.2f * thickness));
+				v = Mathf.Min(1f, v * (1f + 0.05f * thickness));
 				dustColor = Color.HSVToRGB(h, s, v);
 			}
 

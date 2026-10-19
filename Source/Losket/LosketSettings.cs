@@ -64,6 +64,14 @@ namespace Losket
 			toolTip = "#LOC_Losket_Set_DustVacuumTip")]
 		public bool dustInVacuum = false;
 
+		/// <summary>Couleur de la poussiere lue dans Configs/dust-colors.cfg
+		/// par astre. Decoche, le gris-brun par defaut partout : c'est la
+		/// teinte du nuage 3D de Volumetric Ground FX, pour que depot et
+		/// nuage soient assortis.</summary>
+		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DustBodyColor",
+			toolTip = "#LOC_Losket_Set_DustBodyColorTip")]
+		public bool dustBodyColors = true;
+
 		/// <summary>Part de la puissance d'un panneau solaire perdue sous une
 		/// couche de poussiere complete, proportionnelle au recouvrement. 0 =
 		/// la poussiere n'a aucun effet sur les panneaux. Suit le prereglage de
@@ -106,6 +114,14 @@ namespace Losket
 		{
 			var s = Instance;
 			return s != null && s.dustInVacuum ? 0f : LosketBootstrap.DustMinPressureAtm;
+		}
+
+		/// <summary>Vrai si la poussiere prend la couleur de l'astre (table de
+		/// dust-colors.cfg), faux pour le gris-brun par defaut partout.</summary>
+		public static bool DustBodyColors()
+		{
+			var s = Instance;
+			return s == null || s.dustBodyColors;
 		}
 
 		/// <summary>Perte de puissance solaire a recouvrement complet, 0 sans

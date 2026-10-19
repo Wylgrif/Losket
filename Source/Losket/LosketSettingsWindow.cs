@@ -74,6 +74,8 @@ namespace Losket
 				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
 				settings.dustInVacuum = GUILayout.Toggle(settings.dustInVacuum,
 					Localizer.Format("#LOC_Losket_Set_DustVacuum"));
+				settings.dustBodyColors = GUILayout.Toggle(settings.dustBodyColors,
+					Localizer.Format("#LOC_Losket_Set_DustBodyColor"));
 				// Curseur lineaire par pas de 5 % : 0 % = les panneaux ignorent
 				// la poussiere.
 				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_SolarLoss") +

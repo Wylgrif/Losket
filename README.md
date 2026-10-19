@@ -57,12 +57,23 @@ that are already on the craft.
 Dust takes the colour of the ground below the vessel, from a table in
 `GameData/Losket/Configs/dust-colors.cfg` rather than by sampling the terrain. All
 stock bodies are covered. Bodies with no entry fall back to a neutral grey-brown.
+Untick **Dust colour per body** in the Losket settings to use that grey-brown
+everywhere: it matches the dust cloud raised by Volumetric Ground FX.
 
 Planet packs can add their own bodies with a ModuleManager patch:
 
 ```
-LOSKET_BODY_DUST { body = MyBody  color = 0.5, 0.4, 0.3 }
+LOSKET_BODY_DUST
+{
+    body = MyBody
+    color = 0.5, 0.4, 0.3
+}
 ```
+
+One key per line: KSP only splits a line at its first `=`, so a node written
+on a single line is not read. Losket still recognises the old one-line form,
+so patches written before this was fixed keep working, but new ones should use
+the layout above.
 
 How the dust lands depends on the atmosphere. In thick atmosphere it swirls
 and settles from every direction; in thin air it is thrown further and hits the
@@ -84,7 +95,17 @@ nothing changes. A cloud layer counts as a storm when its name contains
 "dust", so planet packs that follow the same naming work too. Duna's thin
 scattered dust hazes deposit five times less than its big storms; each layer's
 weight is a `LOSKET_STORM_LAYER` node that planet packs can add with a
-ModuleManager patch. The settings (`stormDust`, `stormLayerKeyword`,
+ModuleManager patch:
+
+```
+LOSKET_STORM_LAYER
+{
+    name = MyBody-duststorm
+    weight = 0.5
+}
+```
+
+The settings (`stormDust`, `stormLayerKeyword`,
 `stormCoverageMin`, `stormCoverageMax`, `stormDustTime`) live in
 `GameData/Losket/Configs/losket-settings.cfg`.
 
