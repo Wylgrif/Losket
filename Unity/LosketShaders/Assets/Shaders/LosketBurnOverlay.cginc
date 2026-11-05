@@ -14,13 +14,18 @@
 //    bord au vent, moins ca brule. C'est lui qui donne le degrade vertical
 //    d'Orion ("plus en bas qu'en haut, uniforme a une meme hauteur").
 //
-// Deux motifs de bruit :
+// Trois motifs :
 //  - Taches (0) : bruit isotrope, suie diffuse type Orion.
 //  - Stries (1) : filaments alignes sur l'ecoulement DE SURFACE (composante
 //    tangentielle du flux en chaque point), avec grappes de densite le long
 //    de la coque et ligne de stagnation renforcee. Decomposition reprise de
 //    la demo HTML de reference (Exemples/heatshield_generator.html) mais
 //    evaluee par pixel : zero precalcul, zero cout par frame.
+//  - Tuiles (2) : pas un bruit mais un TRANSPORT : depot blanc lache par
+//    les joints entre tuiles, lus dans la texture de base de la piece, et
+//    porte en aval le long du courant de surface, en espace UV, comme sur
+//    le vrai Starship. Voir le bloc "Motif Tuiles" plus bas et
+//    docs/traces-starship.md.
 //
 // Le bruit est echantillonne en espace motif (repere du vaisseau capture au
 // premier vol) : stable face au Krakensbane, continu entre pieces voisines.
@@ -50,6 +55,15 @@ float4 _SpotPos, _SpotAxis;
 float4x4 _ObjToPart;
 float4 _EnvMin, _EnvMax;
 float _SpotRadius, _SpotStretch, _SootGain, _SpotCut, _NoiseWarp;
+
+// Motif Tuiles (depot par les joints) : carte de joints cuite depuis la
+// texture de base (Losket/SeamMap, LosketOverlayRig.SeamMapFor), w = 1 si
+// elle est posee, et reglages. Voir le bloc "Motif Tuiles".
+sampler2D _SeamMap;
+float4 _SeamMap_TexelSize;
+float _SeamOn;
+float _TileSize, _LeakFrac, _BrokenFrac, _StreakLength;
+float _FanTan, _EdgeWear;
 
 // Valeur de la suie en pleine couche : 1 - exp(-3), le plafond de la courbe
 // de saturation ci-dessous. Sert a ramener la couverture a 1.
@@ -149,6 +163,210 @@ float wnoise(float3 p, float amount)
 	float3 q = mul(turn, p);
 	q += (vnoise3(q * 1.7 + 7.3) - 0.5) * (0.8 * amount);
 	return vnoise(q);
+}
+
+// ===================== Motif Tuiles : depot par les joints =====================
+//
+// Ce que le vrai Starship ramene de sa rentree n'est pas un bruit : c'est une
+// poudre blanche (ablatif ou feutre sous les tuiles, brule par le plasma passe
+// dans les interstices) deposee EN AVAL de quelques joints qui fuient et de
+// tuiles cassees ; elle s'elargit en eventail, s'attenue et traverse les
+// tuiles sans s'arreter aux joints. S'y ajoute un lisere blanc au bord amont
+// de chaque tuile (revetement noir erode, tuile blanche dessous). Physique et
+// sources : docs/traces-starship.md.
+//
+// Les tuiles sont la ou la TEXTURE les dessine. Une carte de joints est cuite
+// une fois par texture de base (Losket/SeamMap : passe-haut de la luminance,
+// RenderTexture avec mipmaps, LosketOverlayRig.SeamMapFor) ; une texture
+// d'inox nu donne une carte vide, donc pas de tuiles sur l'inox, sans
+// reglage. Une premiere version projetait une grille hexagonale sur une carte
+// cylindrique de la piece : toute carte deforme des que la piece n'est pas
+// un cylindre (nez, charnieres), et la grille ignorait les hexagones peints.
+//
+// Tout se calcule en espace UV de la piece :
+//  1. base tangente du triangle sous le pixel par derivees d'ecran
+//     (T = dpos/du, B = dpos/dv, exactes par triangle, sans tangentes de
+//     maillage) ; le courant de surface (composante tangentielle du vent
+//     relatif) se projette en direction UV, un pas de ds metres devient un
+//     pas UV ;
+//  2. sources : la carte de joints le long de la marche amont, lue au niveau
+//     de mip dont le texel vaut le pas de marche (une ligne floutee a la
+//     largeur du pas se somme a une constante : pas de crenelage), ponderee
+//     par un champ aleatoire en cellules de la taille d'une tuile (peu de
+//     zones fuient, celles qui fuient fuient fort) et par les tuiles cassees ;
+//  3. transport : N pas, attenuation, eventail (trois prelevements), premier
+//     pas decale par un bruit lisse (un hash par pixel scintille) ;
+//  4. filaments alignes sur le courant, dans le plan tangent, en metres ;
+//  5. usure de bord : le cote aval d'un joint, qui est le bord amont de la
+//     tuile suivante, blanchit : carte(uv - v d) - carte(uv + v d).
+// Limites : aux coutures UV la marche lit l'ile voisine sur une portee au
+// plus ; la marche est droite en UV (pas de courbure des lignes de courant
+// sur cette portee).
+
+// Base tangente et courant en espace UV, calcules une fois par pixel.
+struct TileFrame
+{
+	float2 uv;         // UV du pixel
+	float2 flowUV;     // deplacement UV pour 1 m le long du courant
+	float2 sideUV;     // deplacement UV pour 1 m en travers
+	float3 t;          // courant de surface, espace motif, unitaire
+	float3 side;       // travers, espace motif, unitaire
+	float2 cellUV;     // taille UV d'une cellule grande comme une tuile
+	float lod0;        // niveau de mip de la carte pour l'empreinte du pixel
+	float texelsPerM;  // texels de la carte par metre le long du courant
+	float pxm;         // metres par pixel sur la surface
+	bool ok;
+};
+
+TileFrame TileBuildFrame(float3 sPos, float2 uv, float3 dl)
+{
+	TileFrame f;
+	f.uv = uv;
+	float3 dp1 = ddx(sPos), dp2 = ddy(sPos);
+	float2 du1 = ddx(uv), du2 = ddy(uv);
+	f.pxm = max(length(dp1), length(dp2));
+	float det = du1.x * du2.y - du1.y * du2.x;
+	f.ok = abs(det) > 1e-12;
+	float inv = f.ok ? 1.0 / det : 0.0;
+	float3 T = (dp1 * du2.y - dp2 * du1.y) * inv;   // dpos/du
+	float3 B = (dp2 * du1.x - dp1 * du2.x) * inv;   // dpos/dv
+	// Normale du triangle ; son signe est sans effet sur la projection.
+	float3 n = normalize(cross(dp1, dp2));
+	// Courant de surface : composante tangentielle du vent relatif (-dl).
+	float3 t = -(dl - n * dot(dl, n));
+	float tl = length(t);
+	f.ok = f.ok && tl > 1e-4;
+	t = t / max(tl, 1e-4);
+	float3 side = normalize(cross(n, t));
+	f.t = t;
+	f.side = side;
+	// Projection sur (T, B) par moindres carres (matrice de Gram).
+	float tt = dot(T, T), bb = dot(B, B), tb = dot(T, B);
+	float g = tt * bb - tb * tb;
+	f.ok = f.ok && g > 1e-12;
+	float gi = f.ok ? 1.0 / g : 0.0;
+	float2 rt = float2(dot(t, T), dot(t, B));
+	float2 rs = float2(dot(side, T), dot(side, B));
+	f.flowUV = float2(bb * rt.x - tb * rt.y, tt * rt.y - tb * rt.x) * gi;
+	f.sideUV = float2(bb * rs.x - tb * rs.y, tt * rs.y - tb * rs.x) * gi;
+	// Cellules du tirage des fuites, en TEXELS de la carte (32 au reglage
+	// par defaut), les memes pour tous les triangles. Calculees en metres
+	// depuis la densite de texels de chaque triangle, elles sautaient d'un
+	// triangle a l'autre sur le nez (rangees de triangles).
+	f.cellUV = _SeamMap_TexelSize.xy * (32.0 * max(_TileSize, 0.02) / 0.25);
+	// Niveau de mip pour l'empreinte du pixel, texels de la carte par metre.
+	float2 fw = max(abs(du1), abs(du2)) * _SeamMap_TexelSize.zw;
+	f.lod0 = max(0.0, log2(max(max(fw.x, fw.y), 1e-4)));
+	f.texelsPerM = length(f.flowUV * _SeamMap_TexelSize.zw);
+	return f;
+}
+
+float TileSeam(float2 uv, float lod)
+{
+	return tex2Dlod(_SeamMap, float4(uv, 0.0, lod)).r;
+}
+
+// Tirage par cellule grande comme une tuile : quelles zones fuient, quelles
+// tuiles sont cassees. Sans identite de joint, c'est la ou le pixel tombe.
+float TileCellHash(float2 uv, float2 cellUV, float salt)
+{
+	float2 c = floor(uv / cellUV);
+	return hash13(float3(c, salt));
+}
+
+// Ce que la surface lache en un point de la carte, par metre de trajet.
+float TileSources(TileFrame f, float2 uv, float lod)
+{
+	float seam = TileSeam(uv, lod);
+	float leakFrac = max(_LeakFrac, 0.001);
+	float leak = smoothstep(1.0 - leakFrac, 1.0, TileCellHash(uv, f.cellUV, 1.0));
+	float broken = step(1.0 - _BrokenFrac, TileCellHash(uv, f.cellUV, 3.0));
+	// Gain : un joint fait un centimetre (deux texels d'une texture de 4096
+	// pour des hexagones de 51 texels), douze fois moins que la bande d'un
+	// quart de tuile de l'ancienne grille.
+	return seam * (leak * 18.0 + broken * 48.0);
+}
+
+// Depot transporte : remonte le courant en UV et somme les sources amont,
+// attenuees avec la distance et diluees en eventail.
+float TileDeposit(TileFrame f, float3 sPos)
+{
+	const int N = 16;
+	float len = max(_StreakLength, 0.05);
+	float ds = len / N;
+	float decay = 0.75 * len;
+	// Niveau de mip dont le texel vaut le pas de marche : une ligne floutee a
+	// cette largeur se somme a une constante le long de la marche.
+	float lod = max(f.lod0, log2(max(ds * f.texelsPerM, 1.0)));
+	float jitter = vnoise(float3(sPos * 9.0 + 3.3));
+	float2 q = f.uv - f.flowUV * (ds * jitter);
+	float acc = 0.0;
+	[loop] for (int k = 1; k <= N; k++) {
+		q -= f.flowUV * ds;
+		float s = (k + jitter) * ds;
+		float2 lat = f.sideUV * (s * _FanTan);
+		float taps = TileSources(f, q, lod) +
+			0.5 * (TileSources(f, q + lat, lod) + TileSources(f, q - lat, lod));
+		acc += taps * 0.5 * exp(-s / decay) * ds;
+	}
+	return acc;
+}
+
+// Filaments alignes sur le courant, dans le plan tangent et en metres.
+// L'echelle suit le reglage d'echelle du motif, la nettete celui de nettete ;
+// sous trois pixels de periode ils fondent vers leur moyenne.
+float TileFilaments(TileFrame f, float3 sPos)
+{
+	float along = dot(sPos, f.t);
+	float across = dot(sPos, f.side);
+	float k = _NoiseScale * 7.0;
+	float fade1 = saturate((0.33 - f.pxm * k) / 0.2);
+	float fade2 = saturate((0.33 - f.pxm * k * 2.0) / 0.2);
+	float n1 = lerp(0.5, vnoise(float3(across * k, along * k * 0.0636, 2.1)), fade1);
+	float n2 = lerp(0.5, vnoise(float3(across * k * 2.0 + 3.3, along * k * 0.109 + 1.1, 5.7)), fade2);
+	return pow(saturate(1.0 - abs(2.0 * n1 - 1.0) - 0.3 * n2), max(_Sharpness, 0.5));
+}
+
+// Usure de bord au pixel : le cote aval d'un joint est le bord amont de la
+// tuile suivante, et c'est lui qui blanchit. Une tuile cassee montre un
+// lisere epais sur son bord amont.
+float TileWear(TileFrame f)
+{
+	float lod = f.lod0;
+	// Un texel et demi de la carte, au niveau lu, le long du courant.
+	float2 d = f.flowUV / max(f.texelsPerM, 1e-4) * (1.5 * exp2(lod));
+	float up = TileSeam(f.uv - d, lod);
+	float down = TileSeam(f.uv + d, lod);
+	float edge = saturate(up - down);
+	float var = 0.25 + 0.75 * smoothstep(0.5, 1.0, TileCellHash(f.uv, f.cellUV, 4.0));
+	float broken = step(1.0 - _BrokenFrac, TileCellHash(f.uv, f.cellUV, 3.0));
+	float chip = broken * saturate(TileSeam(f.uv - d * 2.0, lod + 2.0) * 3.0 - 0.3) * 1.5;
+	return var * edge * 0.6 + chip;
+}
+
+// Couverture du motif Tuiles, a la place de grime, et densite de joints
+// autour du pixel (0 sur l'inox nu, ~1 sur les tuiles) pour couper le revenu.
+// Le depot transporte peut atteindre des faces moins exposees que ses
+// sources : son masque est adouci ; l'usure suit la chauffe du pixel au carre.
+float TileGrime(float3 sPos, float2 uv, float3 n, float3 dw, float3 dl, float mask,
+                out float density)
+{
+	density = 0.0;
+	TileFrame f = TileBuildFrame(sPos, uv, dl);
+	if (_SeamOn < 0.5 || !f.ok) {
+		return 0.0;
+	}
+	float dep = TileDeposit(f, sPos);
+	float fil = TileFilaments(f, sPos);
+	float wear = TileWear(f);
+	// Les joints couvrent quelques pour cent de la surface d'une tuile : a un
+	// niveau de mip grossier la carte vaut ~0,03 sur les tuiles SEP, ~0,004
+	// sur leur inox (soudures).
+	density = saturate(TileSeam(uv, max(f.lod0, 6.0)) * 40.0);
+	float soft = saturate((dot(n, dw) + 2.0) / 3.0);
+	float depMask = max(mask, soft * 0.6);
+	return saturate(_BurnMag * (dep * (0.15 + 0.85 * fil) * 4.0 * depMask +
+		_EdgeWear * wear * mask * mask));
 }
 
 v2f vert(appdata v)
@@ -284,6 +502,12 @@ Deposit ComputeDeposit(v2f i)
 	streakGrime = max(streakGrime, saturate(blobGrime * 0.3 * (spine + 0.3)));
 
 	float grime = lerp(blobGrime, streakGrime, saturate(_Pattern));
+	// Motif Tuiles : depot blanc transporte depuis les joints, a la place
+	// des bruits. Branche uniforme : rien n'est calcule quand il est eteint.
+	float tileDensity = 0.0;
+	[branch] if (_Pattern > 1.5) {
+		grime = TileGrime(i.sPos, i.uv, n, dw, dl, mask, tileDensity);
+	}
 	float soot = (1.0 - exp(-3.0 * grime)) * saturate(_SootGain);
 
 	// --- Revenu : la teinte vient de la LUT, jamais d'un slider ---
@@ -291,8 +515,10 @@ Deposit ComputeDeposit(v2f i)
 	float lutU = saturate(_PeakTemp * (0.55 + 0.45 * mask) + 0.12 * (noise - 0.5));
 	fixed4 temper = tex2D(_TemperLut, float2(lutU, 0.5));
 	d.temperRgb = temper.rgb;
+	// Motif Tuiles : pas de revenu sur les tuiles elles-memes (ceramique),
+	// seulement sur l'inox, la ou la carte de joints est vide.
 	d.temperA = temper.a * _TemperGain *
-		smoothstep(0.02, 0.25, mask * _BurnMag) * (1.0 - soot);
+		smoothstep(0.02, 0.25, mask * _BurnMag) * (1.0 - soot) * (1.0 - tileDensity);
 
 	// --- Couleur du depot : suie noire ou trace blanchie ---
 	fixed3 deposit = lerp(_SootColor.rgb, fixed3(0.93, 0.91, 0.88), _Bleach);

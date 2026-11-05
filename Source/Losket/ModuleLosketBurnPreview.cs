@@ -33,7 +33,7 @@ namespace Losket
 
 		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true,
 			guiName = "Motif", groupName = Group, groupDisplayName = GroupTitle),
-		 UI_ChooseOption(options = new[] { "Taches", "Stries" })]
+		 UI_ChooseOption(options = new[] { "Taches", "Stries", "Tuiles" })]
 		public string patternPreset = "Taches";
 
 		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true,
@@ -153,7 +153,7 @@ namespace Losket
 			p.Sharpness = sharpness;
 			p.Streak = streak;
 			p.NoiseScale = noiseScale;
-			p.Pattern = patternPreset == "Stries" ? 1f : 0f;
+			p.Pattern = patternPreset == "Tuiles" ? 2f : (patternPreset == "Stries" ? 1f : 0f);
 			p.Bleach = bleach;
 
 			rig.Apply(p);

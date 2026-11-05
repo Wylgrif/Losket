@@ -118,6 +118,18 @@ namespace Losket
 		/// sa brulure. La poussiere est toujours mate, le revenu jamais.</summary>
 		[KSPField(isPersistant = true)] public bool matte = true;
 
+		// --- Motif Tuiles (pattern = 2), voir docs/traces-starship.md ---
+		// Taille des tuiles (m, cellules du tirage des fuites), part des joints
+		// qui fuient, part des tuiles cassees, portee des trainees (m),
+		// demi-angle d'eventail (deg), usure des bords. Les joints eux-memes
+		// sont lus dans la texture de la piece.
+		[KSPField(isPersistant = true)] public float tileSize = 0.25f;
+		[KSPField(isPersistant = true)] public float tileLeak = 0.12f;
+		[KSPField(isPersistant = true)] public float tileBroken = 0.01f;
+		[KSPField(isPersistant = true)] public float tileLength = 1.5f;
+		[KSPField(isPersistant = true)] public float tileFan = 6f;
+		[KSPField(isPersistant = true)] public float tileEdgeWear = 1f;
+
 		private LosketOverlayRig rig;
 		private Shader shader;
 		private bool editorPreview;
@@ -361,10 +373,10 @@ namespace Losket
 
 				var preset = Fields["presetName"].uiControlEditor as UI_ChooseOption;
 				if (preset != null) {
-					preset.options = LosketKeys.PresetOptions;
-					preset.display = LosketKeys.PresetDisplay();
 					preset.onFieldChanged = OnPresetChanged;
 				}
+				RefreshPresetChoices();
+				LosketUserPresets.Changed += RefreshPresetChoices;
 
 				Events["ToggleEditorPreview"].guiName =
 					Localizer.Format("#LOC_Losket_PreviewShow");
@@ -378,15 +390,60 @@ namespace Losket
 			}
 		}
 
-		/// <summary>Applique un preregle livre avec le mod.</summary>
+		/// <summary>
+		/// Reconstruit la liste "Preregle" du PAW : preregles livres, ceux
+		/// enregistres par le joueur, Personnalise. Une piece dont le preregle
+		/// enregistre a ete supprime passe a Personnalise : ses valeurs sont
+		/// persistees a part, rien n'est perdu.
+		/// </summary>
+		private void RefreshPresetChoices()
+		{
+			var preset = Fields["presetName"].uiControlEditor as UI_ChooseOption;
+			if (preset == null) {
+				return;
+			}
+			preset.options = LosketKeys.PresetOptions();
+			preset.display = LosketKeys.PresetDisplay();
+			if (System.Array.IndexOf(preset.options, presetName) < 0) {
+				presetName = LosketKeys.PresetCustom;
+			}
+			MonoUtilities.RefreshPartContextWindow(part);
+		}
+
+		/// <summary>Applique un preregle livre avec le mod, ou un preregle
+		/// enregistre par le joueur ("User:nom").</summary>
 		public void ApplyPreset(string name)
 		{
+			if (LosketKeys.IsUserPreset(name)) {
+				var style = LosketUserPresets.Find(LosketKeys.UserPresetName(name));
+				if (style == null) {
+					return;
+				}
+				style.ApplyTo(this);
+				presetName = name;
+				return;
+			}
 			switch (name) {
 				case LosketKeys.PresetSoot:
 					// Matte, noire, bords un peu flous, pas d'irisation.
 					sootR = 0.05f; sootG = 0.048f; sootB = 0.045f;
 					temperIntensity = 0.15f; sharpness = 1.3f; streak = 1f;
 					noiseScale = 3f; pattern = 0f; bleach = 0f; matte = true;
+					break;
+				case LosketKeys.PresetSootGrey:
+					// Gris moyen mat, motif large et etire, sans bleu de
+					// chauffe : suie plus claire et plus diffuse.
+					sootR = 0.24f; sootG = 0.24f; sootB = 0.24f;
+					temperIntensity = 0f; sharpness = 1.07f; streak = 16f;
+					noiseScale = 6f; pattern = 0f; bleach = 0f; matte = true;
+					break;
+				case LosketKeys.PresetNatural:
+					// Suie noire tres douce, sans revenu : le reglage "My burn" que le
+					// joueur a trouve naturel sur une navette (nettete au minimum,
+					// motif a 3.27, stries a 1.64), promu preregle livre.
+					sootR = 0f; sootG = 0f; sootB = 0f;
+					temperIntensity = 0f; sharpness = 0.5f; streak = 1.64f;
+					noiseScale = 3.27f; pattern = 0f; bleach = 0f; matte = true;
 					break;
 				case LosketKeys.PresetMetal:
 					// Gris clair, plus net, plein bleu de chauffe ; le metal reste
@@ -400,6 +457,16 @@ namespace Losket
 					sootR = 0.5f; sootG = 0.48f; sootB = 0.45f;
 					temperIntensity = 0.3f; sharpness = 4.5f; streak = 10f;
 					noiseScale = 6f; pattern = 1f; bleach = 0.85f; matte = true;
+					break;
+				case LosketKeys.PresetTiles:
+					// Poudre blanche lachee par les joints d'un bouclier de
+					// tuiles et portee en aval : le vrai Starship. Nettete et
+					// echelle du motif reglent ici les filaments.
+					sootR = 0.5f; sootG = 0.49f; sootB = 0.47f;
+					temperIntensity = 0.3f; sharpness = 1.3f; streak = 1f;
+					noiseScale = 4f; pattern = 2f; bleach = 1f; matte = true;
+					tileSize = 0.25f; tileLeak = 0.12f; tileBroken = 0.01f;
+					tileLength = 1.5f; tileFan = 6f; tileEdgeWear = 1f;
 					break;
 				default:
 					return;
@@ -520,7 +587,10 @@ namespace Losket
 				return;
 			}
 
-			var dq = (float)(heating * TimeWarp.fixedDeltaTime);
+			// Le reglage "Vitesse de brulure" multiplie la dose deposee, pas le
+			// flux : le seuil d'accumulation reste physique, seule la vitesse
+			// de noircissement change.
+			var dq = (float)(heating * TimeWarp.fixedDeltaTime) * LosketSettings.BurnRate();
 
 			// Le cote frappe par l'air est le cote prograde (surface).
 			var flowWorld = ((Vector3)vessel.srf_velocity).normalized;
@@ -725,11 +795,18 @@ namespace Losket
 			p.Bleach = bleach;
 			p.DepositColor = new Color(sootR, sootG, sootB);
 			p.Matte = matte ? 1f : 0f;
+			p.TileSize = tileSize;
+			p.TileLeak = tileLeak;
+			p.TileBroken = tileBroken;
+			p.TileLength = tileLength;
+			p.TileFan = tileFan;
+			p.TileEdgeWear = tileEdgeWear;
 			return p;
 		}
 
 		private void OnDestroy()
 		{
+			LosketUserPresets.Changed -= RefreshPresetChoices;
 			LosketStyleWindow.CloseIfTarget(this);
 			if (rig != null) {
 				rig.Destroy();

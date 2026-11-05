@@ -46,6 +46,13 @@ namespace Losket
 			toolTip = "#LOC_Losket_Set_BurnTip")]
 		public bool burnByDefault = true;
 
+		/// <summary>Multiplicateur de la vitesse de brulure a la rentree.
+		/// Meme echelle logarithmique que les deux autres : x0.1 a x10.</summary>
+		[GameParameters.CustomFloatParameterUI("#LOC_Losket_Set_BurnRate",
+			toolTip = "#LOC_Losket_Set_BurnRateTip", minValue = 0.1f, maxValue = 10f,
+			logBase = 10f, stepCount = 21, displayFormat = "F2")]
+		public float burnRate = 1f;
+
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_Dust",
 			toolTip = "#LOC_Losket_Set_DustTip")]
 		public bool dustByDefault = true;
@@ -91,6 +98,13 @@ namespace Losket
 		[GameParameters.CustomParameterUI("#LOC_Losket_Set_DevUI",
 			toolTip = "#LOC_Losket_Set_DevUITip")]
 		public bool interfaceDev = false;
+
+		/// <summary>Facteur de brulure a la rentree, 1 sans partie chargee.</summary>
+		public static float BurnRate()
+		{
+			var s = Instance;
+			return s != null ? Mathf.Clamp(s.burnRate, 0.1f, 10f) : 1f;
+		}
 
 		/// <summary>Facteur de depot de la poussiere, 1 sans partie chargee.</summary>
 		public static float DustRate()

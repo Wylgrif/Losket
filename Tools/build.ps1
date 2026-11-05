@@ -51,7 +51,9 @@ if ($Deploy) {
     Write-Host "==> Deploiement vers $dstGameData" -ForegroundColor Cyan
     # /XF *.testbundle : preserve les bundles temoins deposes a la main dans
     # l'install de dev pour comparer notre sortie a celle d'un mod qui marche.
-    robocopy $srcGameData $dstGameData /MIR /XF *.testbundle /NFL /NDL /NJH /NJS /R:1 /W:1 | Out-Null
+    # /XD Presets : les preregles de brulure enregistres en jeu vivent dans
+    # PluginData\Presets de l'install, pas dans le depot ; /MIR les effacerait.
+    robocopy $srcGameData $dstGameData /MIR /XF *.testbundle /XD Presets /NFL /NDL /NJH /NJS /R:1 /W:1 | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "echec du deploiement (robocopy $LASTEXITCODE)" }
 
     Get-ChildItem $dstGameData -Recurse -File |

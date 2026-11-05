@@ -39,7 +39,7 @@ Shader "Losket/BurnOverlay"
 		_Sharpness ("Nettete des bords", Range(0.5, 8)) = 2
 		_Streak ("Anisotropie (stries le long du flux)", Range(1, 16)) = 1
 		_NoiseScale ("Echelle du bruit", Range(0.5, 16)) = 4
-		_Pattern ("Motif (0 = taches, 1 = stries)", Range(0, 1)) = 0
+		_Pattern ("Motif (0 = taches, 1 = stries, 2 = tuiles)", Range(0, 2)) = 0
 		_Bleach ("Eclaircissement (0 = suie noire, 1 = trace blanche)", Range(0, 1)) = 0
 		// A 1 : les faces perpendiculaires au flux brulent a moitie. A 2 : meme
 		// les faces opposees au flux recoivent un tiers de la dose — la suie
@@ -97,6 +97,19 @@ Shader "Losket/BurnOverlay"
 		// w de _EnvMin = 1 pour activer.
 		_EnvMin ("Enveloppe, coin min (w = actif)", Vector) = (0, 0, 0, 0)
 		_EnvMax ("Enveloppe, coin max", Vector) = (0, 0, 0, 0)
+
+		// Motif Tuiles (_Pattern = 2) : depot blanc transporte depuis les
+		// joints lus dans la texture de base. Carte de joints cuite par le C#
+		// (LosketOverlayRig.SeamMapFor), reglages par la fenetre de style. Voir
+		// LosketBurnOverlay.cginc et docs/traces-starship.md.
+		_SeamMap ("Carte de joints de la texture de base", 2D) = "black" {}
+		_SeamOn ("Carte de joints posee", Range(0, 1)) = 0
+		_TileSize ("Taille des tuiles (m)", Range(0.05, 1)) = 0.25
+		_LeakFrac ("Part des joints qui fuient", Range(0, 0.3)) = 0.12
+		_BrokenFrac ("Part des tuiles cassees", Range(0, 0.05)) = 0.01
+		_StreakLength ("Portee des trainees (m)", Range(0.2, 5)) = 1.5
+		_FanTan ("Tangente du demi-angle d'eventail", Float) = 0.105
+		_EdgeWear ("Usure des bords", Range(0, 2)) = 1
 	}
 
 	SubShader
@@ -119,6 +132,8 @@ Shader "Losket/BurnOverlay"
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragForward
+			// La boucle de transport du motif Tuiles depasse le modele 2.5.
+			#pragma target 3.0
 			#include "LosketBurnOverlay.cginc"
 			ENDCG
 		}

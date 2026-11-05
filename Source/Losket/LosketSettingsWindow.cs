@@ -63,15 +63,11 @@ namespace Losket
 			} else {
 				settings.burnByDefault = GUILayout.Toggle(settings.burnByDefault,
 					Localizer.Format("#LOC_Losket_Set_Burn"));
+				settings.burnRate = RateSlider("#LOC_Losket_Set_BurnRate", settings.burnRate);
+				GUILayout.Space(6f);
 				settings.dustByDefault = GUILayout.Toggle(settings.dustByDefault,
 					Localizer.Format("#LOC_Losket_Set_Dust"));
-				GUILayout.Space(6f);
-				// Curseur logarithmique : x0.1 a gauche, x1 au centre, x10 a
-				// droite, par pas de 10 %.
-				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_DustRate") +
-				                " : x" + settings.dustRate.ToString("0.##"));
-				var log = GUILayout.HorizontalSlider(Mathf.Log10(settings.dustRate), -1f, 1f);
-				settings.dustRate = Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
+				settings.dustRate = RateSlider("#LOC_Losket_Set_DustRate", settings.dustRate);
 				settings.dustInVacuum = GUILayout.Toggle(settings.dustInVacuum,
 					Localizer.Format("#LOC_Losket_Set_DustVacuum"));
 				// Curseur lineaire par pas de 5 % : 0 % = les panneaux ignorent
@@ -83,11 +79,8 @@ namespace Losket
 				GUILayout.Space(6f);
 				settings.exhaustMarks = GUILayout.Toggle(settings.exhaustMarks,
 					Localizer.Format("#LOC_Losket_Set_Exhaust"));
-				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_ExhaustRate") +
-				                " : x" + settings.exhaustRate.ToString("0.##"));
-				var exhaustLog = GUILayout.HorizontalSlider(
-					Mathf.Log10(settings.exhaustRate), -1f, 1f);
-				settings.exhaustRate = Mathf.Pow(10f, Mathf.Round(exhaustLog * 24f) / 24f);
+				settings.exhaustRate = RateSlider("#LOC_Losket_Set_ExhaustRate",
+					settings.exhaustRate);
 				GUILayout.Space(6f);
 				settings.interfaceDev = GUILayout.Toggle(settings.interfaceDev,
 					Localizer.Format("#LOC_Losket_Set_DevUI"));
@@ -102,6 +95,15 @@ namespace Losket
 			}
 
 			GUI.DragWindow();
+		}
+
+		/// <summary>Curseur de vitesse logarithmique : x0.1 a gauche, x1 au
+		/// centre, x10 a droite, par pas de 10 %.</summary>
+		private static float RateSlider(string labelTag, float rate)
+		{
+			GUILayout.Label(Localizer.Format(labelTag) + " : x" + rate.ToString("0.##"));
+			var log = GUILayout.HorizontalSlider(Mathf.Log10(rate), -1f, 1f);
+			return Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
 		}
 
 		private void ReleaseLock()

@@ -99,6 +99,19 @@ namespace Losket
 		public Vector3 EnvelopeMin;
 		public Vector3 EnvelopeMax;
 
+		/// <summary>Motif Tuiles (Pattern = 2) : depot blanc transporte depuis
+		/// les joints lus dans la texture de base, voir docs/traces-starship.md.
+		/// Taille d'une tuile en metres (cellules du tirage des fuites) ; part
+		/// des joints qui fuient et des tuiles cassees (0..1) ; portee des
+		/// trainees en metres ; demi-angle d'eventail en degres ; gain de
+		/// l'usure des bords.</summary>
+		public float TileSize;
+		public float TileLeak;
+		public float TileBroken;
+		public float TileLength;
+		public float TileFan;
+		public float TileEdgeWear;
+
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
 		{
@@ -127,6 +140,12 @@ namespace Losket
 				SpotCut = 0f,
 				NoiseWarp = 0f,
 				Matte = 1f,
+				TileSize = 0.25f,
+				TileLeak = 0.12f,
+				TileBroken = 0.01f,
+				TileLength = 1.5f,
+				TileFan = 6f,
+				TileEdgeWear = 1f,
 			};
 		}
 	}
@@ -160,6 +179,16 @@ namespace Losket
 		private readonly List<Material> materials = new List<Material>();
 		private readonly List<Material[]> materialSlots = new List<Material[]>();
 		private readonly List<Bounds> meshBounds = new List<Bounds>();
+
+		/// <summary>Carte de joints par texture de base, pour le motif Tuiles :
+		/// passe-haut de la luminance cuit une fois par texture (Losket/SeamMap)
+		/// dans une RenderTexture avec mipmaps, partagee par toutes les pieces
+		/// qui portent cette texture. Jamais liberee : les textures de pieces
+		/// vivent toute la partie, et chaque carte pese un demi-megaoctet.</summary>
+		private static readonly Dictionary<Texture, RenderTexture> seamMaps =
+			new Dictionary<Texture, RenderTexture>();
+		private static Material seamMapMaterial;
+		private static bool seamMapUnavailable;
 		/// <summary>Masque alpha repris de la texture d'origine (famille
 		/// cutout) : Used = false pour les overlays sans masque. Sert a
 		/// detecter un changement de texture a la source (drapeau de mission
@@ -180,6 +209,18 @@ namespace Losket
 		/// derniere verification : s'il change (B9PartSwitch, remplacement
 		/// tardif par un autre mod), la variante d'overlay est rechoisie.</summary>
 		private readonly List<Shader> sourceShaders = new List<Shader>();
+
+		/// <summary>Reprises de l'auto-reparation par overlay. Un mod qui lit
+		/// renderer.materials en boucle (BlackWindows, toutes les 1,5 s)
+		/// instancie le materiau partage a chaque passage : la premiere
+		/// usurpation est journalisee, les suivantes sont comptees en silence
+		/// et resumees au Destroy.</summary>
+		private readonly List<int> repairCounts = new List<int>();
+		/// <summary>Nom du dernier materiau trouve a la place du notre.</summary>
+		private string lastUsurper;
+		/// <summary>Copies "(Instance)" de materiaux Losket detruites pour ne
+		/// pas fuir (une par sous-maillage et par usurpation).</summary>
+		private int freedCopies;
 
 		private struct BaseMask
 		{
@@ -435,6 +476,7 @@ namespace Losket
 				rig.sourceShaders.Add(sourceMat != null ? sourceMat.shader : null);
 				rig.materials.Add(material);
 				rig.materialSlots.Add(slots);
+				rig.repairCounts.Add(0);
 				rig.meshBounds.Add(bounds);
 				rig.baseMasks.Add(mask);
 			}
@@ -493,16 +535,16 @@ namespace Losket
 
 				// Auto-reparation : d'autres systemes de KSP (variantes,
 				// highlighter, opacite de l'editeur) reassignent parfois les
-				// materiaux des renderers qu'ils trouvent sous le modele. On
-				// journalise l'usurpateur - piece a conviction - et on reprend
-				// la main.
+				// materiaux des renderers qu'ils trouvent sous le modele, et
+				// un simple acces a renderer.materials par un autre mod
+				// remplace chaque slot par une copie "(Instance)". On
+				// journalise l'usurpateur - piece a conviction - une seule
+				// fois par overlay, on reprend la main sur tous les
+				// sous-maillages et on detruit les copies de notre materiau
+				// pour ne pas les laisser fuir.
 				var current = r.sharedMaterial;
 				if (!ReferenceEquals(current, m)) {
-					LosketBootstrap.LogWarning(ownerId + " : materiau de l'overlay " + i +
-						" remplace par '" +
-						(current != null ? current.name + "' (shader " + current.shader.name + ")" : "null'") +
-						" - reassigne");
-					r.sharedMaterials = materialSlots[i];
+					Repair(i, r, m, current);
 				}
 
 				var b = meshBounds[i];
@@ -586,6 +628,23 @@ namespace Losket
 				m.SetFloat("_NoiseWarp", p.NoiseWarp);
 				m.SetFloat("_Matte", p.Matte);
 
+				// Motif Tuiles : carte de joints de la texture de base, cuite une
+				// fois par texture (SeamMapFor), seulement quand le motif est en
+				// service : la cuisson coute un blit, inutile pour la suie.
+				if (p.Pattern > 1.5f) {
+					var seam = SeamMapFor(srcMat != null ? srcMat.mainTexture : null);
+					m.SetTexture("_SeamMap", seam);
+					m.SetFloat("_SeamOn", seam != null ? 1f : 0f);
+				} else {
+					m.SetFloat("_SeamOn", 0f);
+				}
+				m.SetFloat("_TileSize", p.TileSize);
+				m.SetFloat("_LeakFrac", p.TileLeak);
+				m.SetFloat("_BrokenFrac", p.TileBroken);
+				m.SetFloat("_StreakLength", p.TileLength);
+				m.SetFloat("_FanTan", Mathf.Tan(p.TileFan * Mathf.Deg2Rad));
+				m.SetFloat("_EdgeWear", p.TileEdgeWear);
+
 				// Le point d'impact est stocke en espace piece ; le shader
 				// travaille en espace motif, comme pour le bruit.
 				var spot = p.PartToPattern.MultiplyPoint3x4(p.SpotPosPart);
@@ -624,21 +683,98 @@ namespace Losket
 			overlay.SetTextureOffset("_BaseTex", mask.Offset);
 		}
 
+		/// <summary>Reprend la main sur l'overlay i dont le premier slot
+		/// n'est plus notre materiau : reassigne tous les sous-maillages
+		/// (MeshRenderer comme SkinnedMeshRenderer, via sharedMaterials) puis
+		/// detruit les copies "(Instance)" de notre materiau qui y etaient.</summary>
+		private void Repair(int i, Renderer r, Material m, Material current)
+		{
+			var count = repairCounts[i] + 1;
+			repairCounts[i] = count;
+			lastUsurper = current != null ? current.name : "null";
+			if (count == 1) {
+				LosketBootstrap.LogWarning(ownerId + " : materiau de l'overlay " + i +
+					" remplace par '" +
+					(current != null ? current.name + "' (shader " +
+						(current.shader != null ? current.shader.name : "null") + ")" : "null'") +
+					" - reassigne (les reprises suivantes sont comptees en silence)");
+			}
+			// Les anciens slots sont lus AVANT la reassignation : une fois
+			// retires du renderer, plus rien ne les reference et les copies
+			// peuvent etre detruites sans priver personne.
+			var usurped = r.sharedMaterials;
+			r.sharedMaterials = materialSlots[i];
+			ReleaseCopies(usurped, m);
+		}
+
+		/// <summary>Detruit, parmi des materiaux retires d'un renderer, ceux
+		/// qui sont des copies "(Instance)" d'un materiau Losket. Tout autre
+		/// materiau peut appartenir a un autre mod : on n'y touche pas.</summary>
+		private void ReleaseCopies(Material[] usurped, Material own)
+		{
+			if (usurped == null) {
+				return;
+			}
+			for (var k = 0; k < usurped.Length; k++) {
+				var u = usurped[k];
+				if (!IsLosketCopy(u, own)) {
+					continue;
+				}
+				UnityEngine.Object.Destroy(u);
+				freedCopies++;
+			}
+		}
+
+		/// <summary>Vrai si u est une copie instanciee par Unity de notre
+		/// materiau own : meme shader et nom en "... (Instance)". Les
+		/// materiaux originaux du rig ne sont jamais des copies.</summary>
+		private bool IsLosketCopy(Material u, Material own)
+		{
+			if (u == null || ReferenceEquals(u, own) || materials.Contains(u)) {
+				return false;
+			}
+			if (!ReferenceEquals(u.shader, own.shader)) {
+				return false;
+			}
+			return u.name != null && u.name.EndsWith(" (Instance)", StringComparison.Ordinal);
+		}
+
 		public void Destroy()
 		{
-			foreach (var overlay in overlays) {
-				if (overlay != null) {
-					UnityEngine.Object.Destroy(overlay.gameObject);
+			var repairs = 0;
+			foreach (var count in repairCounts) {
+				repairs += count;
+			}
+			for (var i = 0; i < overlays.Count; i++) {
+				var overlay = overlays[i];
+				if (overlay == null) {
+					continue;
 				}
+				// Des copies peuvent encore etre en place si l'usurpation
+				// a eu lieu apres le dernier Apply : on les retire avant de
+				// detruire l'objet, sinon elles survivent au renderer.
+				if (i < materials.Count && materials[i] != null &&
+				    !ReferenceEquals(overlay.sharedMaterial, materials[i])) {
+					var usurped = overlay.sharedMaterials;
+					overlay.sharedMaterials = materialSlots[i];
+					ReleaseCopies(usurped, materials[i]);
+				}
+				UnityEngine.Object.Destroy(overlay.gameObject);
 			}
 			foreach (var material in materials) {
 				if (material != null) {
 					UnityEngine.Object.Destroy(material);
 				}
 			}
+			if (repairs > 0) {
+				LosketBootstrap.Log(ownerId + " : " + repairs + " reprise(s) de materiau sur " +
+					overlays.Count + " overlay(s), " + freedCopies +
+					" copie(s) liberee(s), derniere copie : '" + lastUsurper + "'");
+			}
 			overlays.Clear();
 			materials.Clear();
 			materialSlots.Clear();
+			repairCounts.Clear();
 			meshBounds.Clear();
 			baseMasks.Clear();
 			sourceShaders.Clear();
@@ -761,6 +897,50 @@ namespace Losket
 				max += Vector3.one * BoundsMargin;
 			}
 			return any;
+		}
+
+		/// <summary>
+		/// Carte de joints d'une texture de base, cuite a la premiere demande :
+		/// Graphics.Blit avec Losket/SeamMap (passe-haut de la luminance) dans
+		/// une RenderTexture a demi-resolution, R8 si possible, avec mipmaps
+		/// (le shader lit le niveau dont le texel vaut son pas de marche), et le
+		/// mode de repetition de la texture d'origine. Null sans texture ou sans
+		/// shader : le motif ne dessine alors rien.
+		/// </summary>
+		private static RenderTexture SeamMapFor(Texture source)
+		{
+			if (source == null || seamMapUnavailable) {
+				return null;
+			}
+			RenderTexture rt;
+			if (seamMaps.TryGetValue(source, out rt) && rt != null) {
+				return rt;
+			}
+			if (seamMapMaterial == null) {
+				var shader = LosketBootstrap.GetShader("Losket/SeamMap");
+				if (shader == null) {
+					seamMapUnavailable = true;
+					LosketBootstrap.Log("Shader Losket/SeamMap absent du bundle : motif Tuiles sans carte de joints");
+					return null;
+				}
+				seamMapMaterial = new Material(shader);
+			}
+			var w = Mathf.Clamp(source.width / 2, 64, 2048);
+			var h = Mathf.Clamp(source.height / 2, 64, 2048);
+			var format = SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.R8)
+				? RenderTextureFormat.R8 : RenderTextureFormat.ARGB32;
+			rt = new RenderTexture(w, h, 0, format) {
+				name = "losketSeamMap:" + source.name,
+				useMipMap = true,
+				autoGenerateMips = true,
+				filterMode = FilterMode.Trilinear,
+				wrapMode = source.wrapMode,
+			};
+			rt.Create();
+			Graphics.Blit(source, rt, seamMapMaterial);
+			seamMaps[source] = rt;
+			LosketBootstrap.Log("Carte de joints cuite pour '" + source.name + "' (" + w + "x" + h + ")");
+			return rt;
 		}
 
 		private static Vector3 LongestAxis(Vector3 size)

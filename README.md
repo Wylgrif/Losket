@@ -31,14 +31,29 @@ Losket group:
 - Affected by — Nothing, Scorching, Dust, or Scorching and dust. Parts you will
   never see, or that sit inside a fairing, can be set to Nothing to save the
   work of rendering them.
-- Preset — the look of the deposit. Soot is matte black with soft edges. Metal
-  is lighter, sharper, and shows the full blue heat tint. Streaks is bleached
-  and elongated, closer to how Starship comes back.
+- Preset — the look of the deposit. Soot is matte black with soft edges. Grey
+  soot is a lighter, more diffuse soot with a wide pattern and no heat tint.
+  Natural is pure black, softer still and without heat tint, the look of a
+  well-used spaceplane.
+  Metal is lighter still, sharper, and shows the full blue heat tint. Streaks
+  is bleached and elongated, closer to how Starship comes back. Tiles goes
+  further for a tiled heat shield: white powder leaking from a few tile
+  seams and carried downstream, see [Tiles](#tiles). Presets you have
+  saved yourself (below) are listed after these.
 - Advanced settings — opens a window with the individual sliders: deposit
   colour, heat tint, bleaching, sharpness, pattern scale, streak length, a
   blend between blotches and streaks, and a Reflections switch (see
   [Reflective surfaces](#reflective-surfaces)). Touching any slider switches
   the preset to Custom.
+- Saved presets, at the bottom of the same window. Type a name and click
+  **Save** to keep the current sliders as a preset of your own; it then
+  appears in the Preset list of every part. Click a saved preset to apply it,
+  **Copy** to put it in the clipboard as text, or **X** to delete it.
+  **Paste** imports a preset someone else copied (from a forum post, a chat
+  message...) and applies it. Each preset is one small `.cfg` file in
+  `GameData/Losket/PluginData/Presets/`; **Folder** opens it, so a file
+  dropped there is picked up with **Reload**. Keep that folder when you
+  update the mod.
 - Preview scorching — shows the effect in the editor without flying.
 - Exhaust: scorching / no heat — on engine parts only. Propellers, turboprops
   and lift fans are guessed from their part name and start as "no heat", so
@@ -163,11 +178,42 @@ rocket's max-Q. A dusty plane comes back clean after a few minutes at speed.
 Duna's air is too thin to clean anything. The rates are `airMinQ` and
 `airTime` on `ModuleLosketDust`.
 
-## Dust rate
+## Rates
 
-The Losket settings (toolbar button, or Difficulty > Losket) have a **Dust
-rate** slider from x0.1 to x10. It scales how fast dust settles at the moment
-it lands; dust already on a part is not changed.
+The Losket settings (toolbar button, or Difficulty > Losket) have three rate
+sliders from x0.1 to x10: **Scorching rate** for re-entry heating, **Exhaust
+marking rate** for engine plumes, and **Dust rate** for dust. Each scales how
+fast its deposit builds up at the moment it lands; marks already on a part are
+not changed, and the speed below which nothing scorches at all stays the same.
+
+## Tiles
+
+The **Tiles** preset reproduces what a tiled heat shield such as Starship's
+actually comes back with. Hot gas gets into a few of the gaps between tiles
+and burns the material underneath; the white powder it makes is carried
+downstream by the airflow, fans out, thins out over a metre or two and
+crosses the tiles without stopping at the seams. Broken tiles leave the
+biggest plumes, and the upstream edge of each tile whitens where its black
+coating wears off.
+
+The tiles are wherever the part's own texture draws them. Losket reads the
+seams out of the base texture once (a line detector on its brightness, baked
+into a small map), picks which of them leak, and carries the powder along the
+airflow in the texture's own space, so nothing is projected or distorted
+and nothing needs to be told where the tiles are. A bare steel texture has
+no seams, so it gets no tile marks and keeps its heat tint; a tiled one
+gets the marks and no tint, since ceramic does not blue. Panel lines on a
+texture count as seams too, which is how real panel lines behave.
+
+The advanced settings window shows the preset's own sliders when the Tiles
+pattern is selected: tile size (sets how large the patches that leak are),
+the share of seams that leak and of tiles that are broken, how far a streak
+reaches, its fan angle and the edge wear. Pattern scale and sharpness set
+the fineness of the filaments the powder leaves. Two limits: where the
+texture's UV layout has a seam, streaks are cut over a streak's length, and
+a material whose main texture is not the painted one (some TexturesUnlimited
+setups) shows nothing. The physics and the design are written up in
+`docs/traces-starship.md`.
 
 ## Reflective surfaces
 
