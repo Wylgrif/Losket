@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Globalization;
 using System.Reflection;
 using UnityEngine;
 
@@ -81,15 +82,25 @@ namespace Losket
 			DustTime = Mathf.Max(DustTime, 1f);
 		}
 
-		/// <summary>Lit les poids par couche :
-		/// LOSKET_STORM_LAYER { name = Duna-dust-scattered  weight = 0.2 }.</summary>
+		/// <summary>Lit les poids par couche (noeuds LOSKET_STORM_LAYER,
+		/// cles name et weight). L'ancien format sur une ligne est tolere,
+		/// voir LosketBootstrap.SplitLegacyPair.</summary>
 		internal static void LoadLayers()
 		{
 			layerWeights.Clear();
 			foreach (var node in GameDatabase.Instance.GetConfigNodes("LOSKET_STORM_LAYER")) {
 				var name = node.GetValue("name");
 				var weight = 1f;
-				if (string.IsNullOrEmpty(name) || !node.TryGetValue("weight", ref weight)) {
+				var hasWeight = node.TryGetValue("weight", ref weight);
+				string legacyName, legacyWeight;
+				if (!hasWeight && !node.HasValue("weight") &&
+				    LosketBootstrap.SplitLegacyPair(name, "weight", out legacyName, out legacyWeight)) {
+					name = legacyName;
+					hasWeight = float.TryParse(legacyWeight, NumberStyles.Float,
+						CultureInfo.InvariantCulture, out weight);
+					LosketBootstrap.Log("noeud LOSKET_STORM_LAYER a l'ancien format (une ligne) reconnu : " + name);
+				}
+				if (string.IsNullOrEmpty(name) || !hasWeight) {
 					LosketBootstrap.LogWarning("noeud LOSKET_STORM_LAYER incomplet ignore (name=" + name + ")");
 					continue;
 				}

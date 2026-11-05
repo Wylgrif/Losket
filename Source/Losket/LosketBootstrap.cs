@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace Losket
@@ -50,11 +51,16 @@ namespace Losket
 		public static float DustMinPressureAtm { get; private set; }
 
 		/// <summary>Couleur de la poussiere du corps, depuis les noeuds
-		/// LOSKET_BODY_DUST (voir Configs/dust-colors.cfg).</summary>
+		/// LOSKET_BODY_DUST (voir Configs/dust-colors.cfg). Le gris-brun par
+		/// defaut si le corps n'a pas d'entree ou si le joueur a decoche la
+		/// couleur par astre dans les reglages. Lue a chaque mise a jour de
+		/// la source : le reglage agit sur les depots a venir, la teinte deja
+		/// accumulee sur une piece reste celle de son depot.</summary>
 		public static Color GetDustColor(CelestialBody body)
 		{
 			Color color;
-			return body != null && dustColors.TryGetValue(body.bodyName, out color)
+			return body != null && LosketSettings.DustBodyColors() &&
+			       dustColors.TryGetValue(body.bodyName, out color)
 				? color
 				: DefaultDustColor;
 		}
@@ -102,11 +108,46 @@ namespace Losket
 			    " atm" + (DustMinPressureAtm <= 0f ? " (vide compris)" : ""));
 		}
 
+		/// <summary>
+		/// Tolere l'ancien format sur une ligne des noeuds de config, par
+		/// exemple LOSKET_BODY_DUST { body = Kerbin  color = 0.4, 0.3, 0.2 }.
+		/// KSP ne coupe une ligne qu'au premier '=' : la premiere cle recoit
+		/// alors "Kerbin  color = 0.4, 0.3, 0.2" et la seconde n'existe pas.
+		/// Nos configs sont passees a une cle par ligne, mais des patchs tiers
+		/// (LosketPatches) ont repris l'ancien format : on decoupe la valeur
+		/// plutot que de les casser. Rend vrai si l'ancien format a ete
+		/// reconnu ; first et second recoivent alors les deux valeurs.
+		/// </summary>
+		internal static bool SplitLegacyPair(string value, string secondKey,
+		                                     out string first, out string second)
+		{
+			first = value;
+			second = null;
+			if (string.IsNullOrEmpty(value)) {
+				return false;
+			}
+			var match = Regex.Match(value, @"\s+" + Regex.Escape(secondKey) + @"\s*=",
+				RegexOptions.IgnoreCase);
+			if (!match.Success) {
+				return false;
+			}
+			first = value.Substring(0, match.Index).Trim();
+			second = value.Substring(match.Index + match.Length).TrimEnd('}').Trim();
+			return first.Length > 0 && second.Length > 0;
+		}
+
 		private void LoadDustColors()
 		{
 			foreach (var node in GameDatabase.Instance.GetConfigNodes("LOSKET_BODY_DUST")) {
 				var body = node.GetValue("body");
 				var colorText = node.GetValue("color");
+				string legacyBody, legacyColor;
+				if (string.IsNullOrEmpty(colorText) &&
+				    SplitLegacyPair(body, "color", out legacyBody, out legacyColor)) {
+					body = legacyBody;
+					colorText = legacyColor;
+					Log("noeud LOSKET_BODY_DUST a l'ancien format (une ligne) reconnu : " + body);
+				}
 				if (string.IsNullOrEmpty(body) || string.IsNullOrEmpty(colorText)) {
 					LogWarning("noeud LOSKET_BODY_DUST incomplet ignore (body=" + body + ")");
 					continue;
