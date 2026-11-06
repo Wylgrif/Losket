@@ -141,7 +141,7 @@ namespace Losket
 				NoiseWarp = 0f,
 				Matte = 1f,
 				TileSize = 0.25f,
-				TileLeak = 0.12f,
+				TileLeak = 0.16f,
 				TileBroken = 0.01f,
 				TileLength = 1.5f,
 				TileFan = 6f,

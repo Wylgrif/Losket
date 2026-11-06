@@ -39,7 +39,11 @@ Losket group:
   is bleached and elongated, closer to how Starship comes back. Tiles goes
   further for a tiled heat shield: white powder leaking from a few tile
   seams and carried downstream, see [Tiles](#tiles). Presets you have
-  saved yourself (below) are listed after these.
+  saved yourself (below) are listed after these. Switching a part to a bare
+  metal variant (Restock's Metallic tanks, or any variant whose name or theme
+  is listed in the module's `metalVariants` field) selects the Metal preset
+  for you; switching back while Metal is still selected returns to Soot.
+  A Custom or saved preset is left alone.
 - Advanced settings — opens a window with the individual sliders: deposit
   colour, heat tint, bleaching, sharpness, pattern scale, streak length, a
   blend between blotches and streaks, and a Reflections switch (see

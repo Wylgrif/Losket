@@ -97,7 +97,7 @@ namespace Losket
 				sootR = 0.05f, sootG = 0.048f, sootB = 0.045f,
 				temperIntensity = 0.15f, sharpness = 1.3f, streak = 1f,
 				noiseScale = 3f, pattern = 0f, bleach = 0f, matte = true,
-				tileSize = 0.25f, tileLeak = 0.12f, tileBroken = 0.01f,
+				tileSize = 0.25f, tileLeak = 0.16f, tileBroken = 0.01f,
 				tileLength = 1.5f, tileFan = 6f, tileEdgeWear = 1f,
 			};
 			s.name = LosketUserPresets.CleanName(n.GetValue("name"));

@@ -124,15 +124,33 @@ namespace Losket
 		// demi-angle d'eventail (deg), usure des bords. Les joints eux-memes
 		// sont lus dans la texture de la piece.
 		[KSPField(isPersistant = true)] public float tileSize = 0.25f;
-		[KSPField(isPersistant = true)] public float tileLeak = 0.12f;
+		[KSPField(isPersistant = true)] public float tileLeak = 0.16f;
 		[KSPField(isPersistant = true)] public float tileBroken = 0.01f;
 		[KSPField(isPersistant = true)] public float tileLength = 1.5f;
 		[KSPField(isPersistant = true)] public float tileFan = 6f;
 		[KSPField(isPersistant = true)] public float tileEdgeWear = 1f;
 
+		// --- Variante de piece (ModulePartVariants) ---
+		// Passer une piece en variante metal (ReStock : nom "Metallic", theme
+		// "Metal") la fait basculer au preregle Metal ; la quitter alors que
+		// le preregle Metal est encore en place ramene au preregle Suie. Seul
+		// un vrai changement dans l'editeur compte : le chargement d'un
+		// vaisseau ou d'un .craft ne touche jamais au preregle choisi.
+
+		/// <summary>Noms ou themes de variantes consideres comme du metal nu,
+		/// separes par des virgules, sans tenir compte de la casse. Surchargable
+		/// par ModuleManager.</summary>
+		[KSPField] public string metalVariants = "Metal,Metallic";
+
+		/// <summary>Derniere variante vue dans l'editeur, et si elle comptait
+		/// comme metal : la bascule ne reagit qu'a un changement.</summary>
+		[KSPField(isPersistant = true)] public string lastVariant = "";
+		[KSPField(isPersistant = true)] public bool lastVariantMetal;
+
 		private LosketOverlayRig rig;
 		private Shader shader;
 		private bool editorPreview;
+		private ModulePartVariants variants;
 
 		// Voisins directs (parent + enfants) porteurs du module, pour lisser la
 		// teinte du revenu. Rafraichi periodiquement : l'arbre de pieces change
@@ -378,6 +396,17 @@ namespace Losket
 				RefreshPresetChoices();
 				LosketUserPresets.Changed += RefreshPresetChoices;
 
+				variants = part.FindModuleImplementing<ModulePartVariants>();
+				if (variants != null) {
+					// Point de depart : la variante courante, memorisee sans rien
+					// appliquer. ModulePartVariants rejoue sa variante dans son
+					// propre OnStart ; elle sera egale et ne declenchera rien.
+					if (string.IsNullOrEmpty(lastVariant)) {
+						RememberVariant(CurrentVariant());
+					}
+					GameEvents.onEditorVariantApplied.Add(OnVariantApplied);
+				}
+
 				Events["ToggleEditorPreview"].guiName =
 					Localizer.Format("#LOC_Losket_PreviewShow");
 			}
@@ -388,6 +417,77 @@ namespace Losket
 			if (presetName != LosketKeys.PresetCustom) {
 				ApplyPreset(presetName);
 			}
+		}
+
+		// --- Suivi de la variante de piece ---
+
+		private PartVariant CurrentVariant()
+		{
+			if (variants == null || variants.variantList == null) {
+				return null;
+			}
+			int i = variants.GetCurrentVariantIndex();
+			return i >= 0 && i < variants.variantList.Count ? variants.variantList[i] : null;
+		}
+
+		private void RememberVariant(PartVariant v)
+		{
+			lastVariant = v != null ? (v.Name ?? "") : "";
+			lastVariantMetal = IsMetalVariant(v);
+		}
+
+		/// <summary>Vrai si le nom interne ou le theme de la variante figure
+		/// dans metalVariants. Jamais le libelle affiche : il est traduit.</summary>
+		private bool IsMetalVariant(PartVariant v)
+		{
+			if (v == null || string.IsNullOrEmpty(metalVariants)) {
+				return false;
+			}
+			foreach (var raw in metalVariants.Split(',')) {
+				var key = raw.Trim();
+				if (key.Length == 0) {
+					continue;
+				}
+				if (string.Equals(key, v.Name, StringComparison.OrdinalIgnoreCase)
+					|| string.Equals(key, v.themeName, StringComparison.OrdinalIgnoreCase)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// Variante changee dans l'editeur (sur cette piece ; KSP rejoue
+		/// l'evenement sur chaque contrepartie de symetrie). Entrer dans une
+		/// variante metal applique le preregle Metal, sauf si le joueur a un
+		/// reglage Personnalise ou un preregle a lui : ce choix-la est garde.
+		/// En sortir, avec le preregle Metal encore en place, ramene a Suie.
+		/// </summary>
+		private void OnVariantApplied(Part p, PartVariant variant)
+		{
+			if (p != part || variant == null) {
+				return;
+			}
+			var name = variant.Name ?? "";
+			if (name == lastVariant) {
+				return;
+			}
+			bool wasMetal = lastVariantMetal;
+			bool isMetal = IsMetalVariant(variant);
+			RememberVariant(variant);
+			if (isMetal == wasMetal) {
+				return;
+			}
+			bool deliberate = presetName == LosketKeys.PresetCustom
+				|| LosketKeys.IsUserPreset(presetName);
+			if (isMetal && !deliberate && presetName != LosketKeys.PresetMetal) {
+				ApplyPreset(LosketKeys.PresetMetal);
+			} else if (!isMetal && presetName == LosketKeys.PresetMetal) {
+				ApplyPreset(LosketKeys.PresetSoot);
+			} else {
+				return;
+			}
+			MonoUtilities.RefreshPartContextWindow(part);
 		}
 
 		/// <summary>
@@ -465,7 +565,9 @@ namespace Losket
 					sootR = 0.5f; sootG = 0.49f; sootB = 0.47f;
 					temperIntensity = 0.3f; sharpness = 1.3f; streak = 1f;
 					noiseScale = 4f; pattern = 2f; bleach = 1f; matte = true;
-					tileSize = 0.25f; tileLeak = 0.12f; tileBroken = 0.01f;
+					// 16 % de joints : la valeur retenue par le joueur en jeu sur le
+					// Starship SEP (2026-11-06).
+					tileSize = 0.25f; tileLeak = 0.16f; tileBroken = 0.01f;
 					tileLength = 1.5f; tileFan = 6f; tileEdgeWear = 1f;
 					break;
 				default:
@@ -807,6 +909,7 @@ namespace Losket
 		private void OnDestroy()
 		{
 			LosketUserPresets.Changed -= RefreshPresetChoices;
+			GameEvents.onEditorVariantApplied.Remove(OnVariantApplied);
 			LosketStyleWindow.CloseIfTarget(this);
 			if (rig != null) {
 				rig.Destroy();

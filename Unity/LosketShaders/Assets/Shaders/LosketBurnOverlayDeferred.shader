@@ -67,7 +67,7 @@ Shader "Losket/BurnOverlayDeferred"
 		_SeamMap ("Carte de joints de la texture de base", 2D) = "black" {}
 		_SeamOn ("Carte de joints posee", Range(0, 1)) = 0
 		_TileSize ("Taille des tuiles (m)", Range(0.05, 1)) = 0.25
-		_LeakFrac ("Part des joints qui fuient", Range(0, 0.3)) = 0.12
+		_LeakFrac ("Part des joints qui fuient", Range(0, 0.3)) = 0.16
 		_BrokenFrac ("Part des tuiles cassees", Range(0, 0.05)) = 0.01
 		_StreakLength ("Portee des trainees (m)", Range(0.2, 5)) = 1.5
 		_FanTan ("Tangente du demi-angle d'eventail", Float) = 0.105
