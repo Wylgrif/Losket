@@ -271,6 +271,16 @@ namespace Losket
 				if (IsOverlayName(source.name)) {
 					continue;
 				}
+				// Fleches de l'overlay aerodynamique (F12) : KSP les cree a la
+				// volee comme des MeshRenderer opaques parentes au transform de
+				// la piece (Part.dragArrowPtr, ModuleLiftingSurface,
+				// ModuleCommand). Ce sont des marqueurs d'interface, pas des
+				// coques : sans ce test elles sortaient brulees et illisibles,
+				// et leur longueur gonflait l'enveloppe de depot. On lit le
+				// composant ArrowPointer de KSP, pas le nom de l'objet.
+				if (source.GetComponent<ArrowPointer>() != null) {
+					continue;
+				}
 				// Quad de drapeau declare par un FlagDecal de la piece : un
 				// decalque translucide (file Transparent) que l'on couvre
 				// quand meme, avec l'alpha du drapeau pour masque.
