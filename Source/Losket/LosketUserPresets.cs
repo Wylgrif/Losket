@@ -25,6 +25,7 @@ namespace Losket
 		public float bleach;
 		public bool matte;
 		public float tileSize, tileLeak, tileBroken, tileLength, tileFan, tileEdgeWear;
+		public float tileStyle;
 
 		public static LosketBurnStyle From(ModuleLosketBurn m, string name)
 		{
@@ -42,6 +43,7 @@ namespace Losket
 				tileLeak = m.tileLeak, tileBroken = m.tileBroken,
 				tileLength = m.tileLength, tileFan = m.tileFan,
 				tileEdgeWear = m.tileEdgeWear,
+				tileStyle = m.tileStyle,
 			};
 		}
 
@@ -59,6 +61,7 @@ namespace Losket
 			m.tileLeak = tileLeak; m.tileBroken = tileBroken;
 			m.tileLength = tileLength; m.tileFan = tileFan;
 			m.tileEdgeWear = tileEdgeWear;
+			m.tileStyle = tileStyle;
 		}
 
 		public ConfigNode ToNode()
@@ -81,6 +84,7 @@ namespace Losket
 			n.AddValue("tileLength", tileLength);
 			n.AddValue("tileFan", tileFan);
 			n.AddValue("tileEdgeWear", tileEdgeWear);
+			n.AddValue("tileStyle", tileStyle);
 			return n;
 		}
 
@@ -99,6 +103,9 @@ namespace Losket
 				noiseScale = 3f, pattern = 0f, bleach = 0f, matte = true,
 				tileSize = 0.25f, tileLeak = 0.16f, tileBroken = 0.01f,
 				tileLength = 1.5f, tileFan = 6f, tileEdgeWear = 1f,
+				// Absent des fichiers ecrits avant les types de bouclier : ils
+				// decrivent le type vol 13, le seul qui existait.
+				tileStyle = 0f,
 			};
 			s.name = LosketUserPresets.CleanName(n.GetValue("name"));
 			if (string.IsNullOrEmpty(s.name)) {
@@ -120,6 +127,7 @@ namespace Losket
 			n.TryGetValue("tileLength", ref s.tileLength);
 			n.TryGetValue("tileFan", ref s.tileFan);
 			n.TryGetValue("tileEdgeWear", ref s.tileEdgeWear);
+			n.TryGetValue("tileStyle", ref s.tileStyle);
 			return s;
 		}
 	}

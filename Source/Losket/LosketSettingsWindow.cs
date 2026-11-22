@@ -104,7 +104,14 @@ namespace Losket
 		private static float RateSlider(string labelTag, float rate)
 		{
 			GUILayout.Label(Localizer.Format(labelTag) + " : x" + rate.ToString("0.##"));
-			var log = GUILayout.HorizontalSlider(Mathf.Log10(rate), -1f, 1f);
+			var current = Mathf.Log10(rate);
+			var log = GUILayout.HorizontalSlider(current, -1f, 1f);
+			// Curseur non touche : la valeur reste telle quelle. L'arrondir a
+			// chaque affichage deplacait un reglage fait dans le menu de
+			// difficulte (autre pas) des l'ouverture de la fenetre.
+			if (Mathf.Approximately(log, current)) {
+				return rate;
+			}
 			return Mathf.Pow(10f, Mathf.Round(log * 24f) / 24f);
 		}
 

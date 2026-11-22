@@ -112,6 +112,14 @@ namespace Losket
 		public float TileFan;
 		public float TileEdgeWear;
 
+		/// <summary>Type de bouclier du motif Tuiles : 0 = vol 13, 1 = vol 15
+		/// (_TileStyle dans le shader).</summary>
+		public float TileStyle;
+
+		/// <summary>Graine des tirages du motif Tuiles (_TileSeed) : propre a
+		/// la piece, 0 = tirages d'origine.</summary>
+		public float TileSeed;
+
 		/// <summary>Valeurs par defaut raisonnables pour l'accumulation en vol.</summary>
 		public static BurnParams Defaults()
 		{
@@ -181,14 +189,22 @@ namespace Losket
 		private readonly List<Bounds> meshBounds = new List<Bounds>();
 
 		/// <summary>Carte de joints par texture de base, pour le motif Tuiles :
-		/// passe-haut de la luminance cuit une fois par texture (Losket/SeamMap)
-		/// dans une RenderTexture avec mipmaps, partagee par toutes les pieces
-		/// qui portent cette texture. Jamais liberee : les textures de pieces
-		/// vivent toute la partie, et chaque carte pese un demi-megaoctet.</summary>
+		/// detecteur de lignes cuit une fois par texture (Losket/SeamMap) dans
+		/// une RenderTexture avec mipmaps, partagee par toutes les pieces qui
+		/// portent cette texture. Jamais liberee : les textures de pieces
+		/// vivent toute la partie ; une carte pese 5,6 Mo pour une texture de
+		/// 4096 (2048 au carre sur un octet, plus ses mipmaps).</summary>
 		private static readonly Dictionary<Texture, RenderTexture> seamMaps =
 			new Dictionary<Texture, RenderTexture>();
+		/// <summary>La meme carte relue a gros grain (32 x 32 octets), pour
+		/// savoir cote C# ou la texture porte des tuiles : c'est la que se
+		/// tire la tuile manquante de la coulure de rouille.</summary>
+		private static readonly Dictionary<Texture, byte[]> seamGrids =
+			new Dictionary<Texture, byte[]>();
 		private static Material seamMapMaterial;
 		private static bool seamMapUnavailable;
+		/// <summary>Image de la derniere cuisson : une seule par image.</summary>
+		private static int lastSeamBakeFrame = -1;
 		/// <summary>Masque alpha repris de la texture d'origine (famille
 		/// cutout) : Used = false pour les overlays sans masque. Sert a
 		/// detecter un changement de texture a la source (drapeau de mission
@@ -197,6 +213,28 @@ namespace Losket
 		private readonly string ownerId;
 		private readonly string overlayName;
 		private Transform partTransform;
+
+		// Tuile manquante de la coulure de rouille (motif Tuiles, type vol 15),
+		// tiree sur le maillage : voir LosketRustSource. rustIndex = rang de
+		// l'overlay qui la porte (-1 : aucun triangle tuile), position et
+		// normale dans le repere objet de cet overlay, pour suivre un aileron
+		// qui bouge. rustDraw se compare aux chances donnees par le reglage
+		// "tuiles cassees" : la coulure apparait quand on monte le curseur.
+		private bool rustResolved;
+		private float rustSeed;
+		private int rustIndex = -1;
+		private int rustRetryFrame;
+		private Vector3 rustPosObj;
+		private Vector3 rustNormalObj;
+		private float rustArea;
+		private float rustDraw;
+		private float rustLength;
+		// La tuile elle-meme, calee sur la cellule de la texture : centre en
+		// UV du materiau, rayon en UV et en metres (0 : pas de cellule fermee
+		// autour de la source, la coulure part d'un point).
+		private Vector2 rustTileUv;
+		private float rustTileRadiusUv;
+		private float rustTileRadius;
 		/// <summary>File de rendu par defaut du shader d'overlay (Geometry+100).</summary>
 		private int defaultQueue;
 
@@ -443,7 +481,7 @@ namespace Losket
 				// _MainTex encode la specularite : le prendre pour un masque
 				// effacerait le depot sur les zones mates.
 				var mask = new BaseMask();
-				if (sourceMat != null && sourceMat.shader != null && sourceMat.mainTexture != null &&
+				if (sourceMat != null && sourceMat.shader != null && MainTextureOf(sourceMat) != null &&
 				    IsCutoutFamily(sourceMat.shader.name)) {
 					mask.Used = true;
 					RefreshBaseMask(material, sourceMat, ref mask);
@@ -499,6 +537,13 @@ namespace Losket
 		/// <summary>Pousse les parametres vers tous les overlays de la piece.</summary>
 		public void Apply(BurnParams p)
 		{
+			var rustPos = Vector4.zero;
+			var rustNormal = new Vector4(0f, 1f, 0f, 1f);
+			var rustTile = Vector4.zero;
+			if (p.Pattern > 1.5f && p.TileStyle > 0.5f && p.TileBroken > 0f) {
+				RustVectors(p, ref rustPos, ref rustNormal, ref rustTile);
+			}
+
 			for (var i = 0; i < materials.Count; i++) {
 				var r = overlays[i];
 				if (r == null) {
@@ -535,7 +580,7 @@ namespace Losket
 				// le drapeau (choix de mission, miroir) apres la creation du
 				// rig, et le rig n'est pas perime pour autant (memes renderers).
 				var mask = baseMasks[i];
-				if (mask.Used && srcMat != null &&
+				if (mask.Used && srcMat != null && srcMat.HasProperty(MainTexId) &&
 				    (!ReferenceEquals(srcMat.mainTexture, mask.Texture) ||
 				     srcMat.mainTextureScale != mask.Scale ||
 				     srcMat.mainTextureOffset != mask.Offset)) {
@@ -642,11 +687,27 @@ namespace Losket
 				// fois par texture (SeamMapFor), seulement quand le motif est en
 				// service : la cuisson coute un blit, inutile pour la suie.
 				if (p.Pattern > 1.5f) {
-					var seam = SeamMapFor(srcMat != null ? srcMat.mainTexture : null);
+					var baseTexture = MainTextureOf(srcMat);
+					var seam = SeamMapFor(baseTexture);
 					m.SetTexture("_SeamMap", seam);
 					m.SetFloat("_SeamOn", seam != null ? 1f : 0f);
+					// Le lisere de pres se lit dans la texture elle-meme, au
+					// niveau de mip dont le texel vaut celui de la carte.
+					m.SetTexture("_TileBase", baseTexture);
+					m.SetFloat("_TileBaseLod", seam != null ? BaseLodOf(baseTexture, seam) : 1f);
+					// La marche se fait dans les UV de la texture de base telle
+					// que la piece l'affiche : echelle et decalage du materiau
+					// compris. Le masque alpha les copie deja pour la famille
+					// cutout ; ici pour les autres, sinon une texture repetee
+					// par le materiau donnerait des joints decales de ceux
+					// qu'on voit.
+					if (!mask.Used && baseTexture != null) {
+						m.SetTextureScale("_BaseTex", srcMat.mainTextureScale);
+						m.SetTextureOffset("_BaseTex", srcMat.mainTextureOffset);
+					}
 				} else {
 					m.SetFloat("_SeamOn", 0f);
+					m.SetTexture("_TileBase", null);
 				}
 				m.SetFloat("_TileSize", p.TileSize);
 				m.SetFloat("_LeakFrac", p.TileLeak);
@@ -654,6 +715,15 @@ namespace Losket
 				m.SetFloat("_StreakLength", p.TileLength);
 				m.SetFloat("_FanTan", Mathf.Tan(p.TileFan * Mathf.Deg2Rad));
 				m.SetFloat("_EdgeWear", p.TileEdgeWear);
+				m.SetFloat("_TileStyle", p.TileStyle > 0.5f ? 1f : 0f);
+				m.SetFloat("_TileSeed", p.TileSeed);
+				m.SetVector("_RustPos", rustPos);
+				m.SetVector("_RustNormal", rustNormal);
+				// Le rayon en UV n'est donne qu'a l'overlay qui porte la
+				// tuile : lui seul la dessine, les autres n'en gardent que
+				// la largeur de depart de la coulure.
+				m.SetVector("_RustTile", i == rustIndex
+					? rustTile : new Vector4(0f, 0f, 0f, rustTile.w));
 
 				// Le point d'impact est stocke en espace piece ; le shader
 				// travaille en espace motif, comme pour le bruit.
@@ -679,6 +749,146 @@ namespace Losket
 					m.renderQueue = queue;
 				}
 			}
+		}
+
+		private bool SourceVisible(int i)
+		{
+			var s = sources[i];
+			return s != null && s.enabled && s.gameObject.activeInHierarchy;
+		}
+
+		/// <summary>
+		/// Position (espace motif, w = 1) et normale (w = longueur en metres)
+		/// de la tuile manquante, pour le shader. Laisse les vecteurs tels
+		/// quels (w = 0 : pas de coulure) tant que les cartes de joints ne
+		/// sont pas cuites, si la piece n'a pas de tuiles, ou si le tirage ne
+		/// lui donne pas de tuile manquante.
+		/// </summary>
+		private void RustVectors(BurnParams p, ref Vector4 pos, ref Vector4 normal, ref Vector4 tile)
+		{
+			// A refaire si la graine a change (nouveau lancement, nettoyage),
+			// si le maillage elu n'est plus affiche (variante B9PartSwitch),
+			// et de temps en temps tant qu'aucune tuile n'a ete trouvee (des
+			// renderers peuvent s'allumer apres le premier passage).
+			if (rustResolved) {
+				if (rustSeed != p.TileSeed ||
+				    (rustIndex >= 0 && (overlays[rustIndex] == null || !SourceVisible(rustIndex))) ||
+				    (rustIndex < 0 && Time.frameCount - rustRetryFrame > 300)) {
+					rustResolved = false;
+				}
+			}
+			if (!rustResolved && !ResolveRust(p.TileSeed)) {
+				return;
+			}
+			if (rustIndex < 0 || rustDraw >= LosketRustSource.Chance(p.TileBroken, rustArea)) {
+				return;
+			}
+			var toPattern = p.PartToPattern * partTransform.worldToLocalMatrix *
+				ObjectRoot(overlays[rustIndex]).localToWorldMatrix;
+			var q = toPattern.MultiplyPoint3x4(rustPosObj);
+			var n = toPattern.MultiplyVector(rustNormalObj).normalized;
+			pos = new Vector4(q.x, q.y, q.z, 1f);
+			normal = new Vector4(n.x, n.y, n.z, rustLength);
+			tile = new Vector4(rustTileUv.x, rustTileUv.y, rustTileRadiusUv, rustTileRadius);
+		}
+
+		/// <summary>
+		/// Tire la tuile manquante sur les maillages tuiles affiches de la
+		/// piece. Faux tant qu'une carte de joints reste a cuire (une par
+		/// image) : on reviendra a l'image suivante. Les maillages skinnes
+		/// sont ignores (leurs sommets ne sont pas dans le repere de l'objet),
+		/// comme ceux que Unity ne laisse pas lire.
+		/// </summary>
+		private bool ResolveRust(float seed)
+		{
+			var sampler = new LosketRustSource.Sampler(seed);
+			RenderTexture pickedSeam = null;
+			for (var i = 0; i < overlays.Count; i++) {
+				var r = overlays[i];
+				if (r == null || !SourceVisible(i) || sources[i] is SkinnedMeshRenderer) {
+					continue;
+				}
+				var srcMat = sources[i].sharedMaterial;
+				var baseTexture = MainTextureOf(srcMat);
+				if (baseTexture == null) {
+					continue;
+				}
+				var seam = SeamMapFor(baseTexture);
+				if (seam == null) {
+					if (seamMapUnavailable) {
+						break;
+					}
+					return false;
+				}
+				byte[] grid;
+				if (!seamGrids.TryGetValue(baseTexture, out grid) || !LosketRustSource.AnyTiled(grid)) {
+					continue;
+				}
+				var mesh = SourceMesh(sources[i]);
+				if (mesh == null || !mesh.isReadable) {
+					continue;
+				}
+				var toPart = partTransform.worldToLocalMatrix * ObjectRoot(r).localToWorldMatrix;
+				sampler.AddMesh(i, mesh.vertices, mesh.normals, mesh.uv, mesh.triangles, toPart, grid,
+					srcMat.mainTextureScale, srcMat.mainTextureOffset);
+				if (sampler.Result.Found && sampler.Result.Mesh == i) {
+					pickedSeam = seam;
+				}
+			}
+			var pick = sampler.Result;
+			rustResolved = true;
+			rustSeed = seed;
+			rustRetryFrame = Time.frameCount;
+			rustIndex = pick.Found ? pick.Mesh : -1;
+			rustPosObj = pick.Position;
+			rustNormalObj = pick.Normal;
+			rustArea = sampler.Area;
+			rustDraw = sampler.Next();
+			// Longueur : de 35 a 60 % du cote d'un carre de meme surface que
+			// les tuiles de la piece (3 a 5 m sur le nez du Starship SEP).
+			rustLength = Mathf.Max(0.5f, Mathf.Sqrt(rustArea) * (0.35f + 0.25f * sampler.Next()));
+
+			// Calage sur la tuile de la texture : la carte de joints est
+			// relue texel pour texel autour de la source, la cellule fermee
+			// qui la contient donne le centre et le rayon de la tuile, et la
+			// source est ramenee a ce centre.
+			rustTileUv = pick.Uv;
+			rustTileRadiusUv = 0f;
+			rustTileRadius = 0f;
+			if (pick.Found && pickedSeam != null && pick.MetresPerUv > 0f) {
+				var window = LosketRustSource.ReadWindow(pickedSeam, pick.Uv);
+				var x = pick.Uv.x * window.MapWidth - window.X0;
+				var y = pick.Uv.y * window.MapHeight - window.Y0;
+				float radius;
+				if (LosketRustSource.FindTile(window.Data, ref x, ref y, out radius)) {
+					rustTileUv = new Vector2((window.X0 + x) / window.MapWidth,
+						(window.Y0 + y) / window.MapHeight);
+					rustTileRadiusUv = radius / window.MapWidth;
+					rustTileRadius = rustTileRadiusUv * pick.MetresPerUv;
+					rustPosObj = LosketRustSource.UvToObject(pick, rustTileUv);
+				}
+			}
+			if (pick.Found) {
+				LosketBootstrap.Log(ownerId + " : tuile manquante tiree sur '" + sources[rustIndex].name +
+					"' (" + rustArea.ToString("F0") + " m2 de tuiles, coulure de " +
+					rustLength.ToString("F1") + " m, tirage " + rustDraw.ToString("F2") +
+					(rustTileRadius > 0f
+						? ", tuile de " + (200f * rustTileRadius).ToString("F0") + " cm"
+						: ", pas de tuile fermee autour") + ")");
+			}
+			return true;
+		}
+
+		private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+
+		/// <summary>Texture de base d'un materiau, null s'il n'a pas de
+		/// propriete _MainTex. Material.mainTexture journalise une erreur a
+		/// chaque appel dans ce cas ; le motif Tuiles la demande a chaque
+		/// image.</summary>
+		private static Texture MainTextureOf(Material material)
+		{
+			return material != null && material.HasProperty(MainTexId)
+				? material.mainTexture : null;
 		}
 
 		/// <summary>Copie texture, echelle et decalage de la source vers le
@@ -910,13 +1120,32 @@ namespace Losket
 		}
 
 		/// <summary>
-		/// Carte de joints d'une texture de base, cuite a la premiere demande :
-		/// Graphics.Blit avec Losket/SeamMap (passe-haut de la luminance) dans
-		/// une RenderTexture a demi-resolution, R8 si possible, avec mipmaps
-		/// (le shader lit le niveau dont le texel vaut son pas de marche), et le
-		/// mode de repetition de la texture d'origine. Null sans texture ou sans
-		/// shader : le motif ne dessine alors rien.
+		/// Carte de joints d'une texture de base, cuite a la premiere demande
+		/// par Losket/SeamMap, en trois Graphics.Blit : une pre-passe
+		/// log-luminance (moyenne et minimum des quatre texels sous chaque
+		/// texel de la carte), le detecteur de lignes, puis un lissage, les
+		/// deux premiers dans des cibles provisoires et le dernier dans une
+		/// RenderTexture a demi-resolution, deux canaux de 8 bits si possible
+		/// (le joint, et le joint s'il est peint en sombre),
+		/// avec mipmaps (le shader d'overlay lit le niveau dont le texel vaut
+		/// son pas de marche) et le mode de repetition de la texture d'origine.
+		/// Null sans texture, sans shader, ou si une autre carte a deja ete
+		/// cuite dans cette image (le motif ne dessine alors rien, et la
+		/// demande revient a l'image suivante).
 		/// </summary>
+		/// <summary>Niveau de mip de la texture de base, compte depuis le
+		/// premier niveau que le GPU detient, dont le texel a la taille d'un
+		/// texel de la carte de joints : 1 quand la carte fait la moitie de la
+		/// texture, davantage pour une texture de plus de 4096.</summary>
+		private static float BaseLodOf(Texture source, RenderTexture seam)
+		{
+			var source2D = source as Texture2D;
+			var mips = source2D != null ? Mathf.Max(1, source2D.mipmapCount) : 1;
+			var top = Mathf.Clamp(QualitySettings.masterTextureLimit, 0, mips - 1);
+			var held = Mathf.Max(1, source.width >> top);
+			return Mathf.Max(0f, Mathf.Log(held / (float)Mathf.Max(1, seam.width), 2f));
+		}
+
 		private static RenderTexture SeamMapFor(Texture source)
 		{
 			if (source == null || seamMapUnavailable) {
@@ -924,7 +1153,18 @@ namespace Losket
 			}
 			RenderTexture rt;
 			if (seamMaps.TryGetValue(source, out rt) && rt != null) {
-				return rt;
+				if (rt.IsCreated()) {
+					return rt;
+				}
+				// Contenu perdu avec le peripherique graphique : a recuire.
+				UnityEngine.Object.Destroy(rt);
+				seamMaps.Remove(source);
+			}
+			// Une cuisson par image : un vaisseau de tuiles en demande une par
+			// texture au meme instant (onze pour la coque du Starship SEP), et
+			// chacune coute environ 500 lectures par texel.
+			if (Time.frameCount == lastSeamBakeFrame) {
+				return null;
 			}
 			if (seamMapMaterial == null) {
 				var shader = LosketBootstrap.GetShader("Losket/SeamMap");
@@ -935,11 +1175,52 @@ namespace Losket
 				}
 				seamMapMaterial = new Material(shader);
 			}
-			var w = Mathf.Clamp(source.width / 2, 64, 2048);
-			var h = Mathf.Clamp(source.height / 2, 64, 2048);
-			var format = SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.R8)
-				? RenderTextureFormat.R8 : RenderTextureFormat.ARGB32;
-			rt = new RenderTexture(w, h, 0, format) {
+			lastSeamBakeFrame = Time.frameCount;
+
+			// Niveau de mip lu par la pre-passe : le plus fin que le GPU detient.
+			// Le reglage "qualite des textures" de KSP (masterTextureLimit) en
+			// retire les premiers niveaux sans changer width/height ; au-dela de
+			// 4096 on descend d'autant de niveaux qu'il faut pour que la carte
+			// (2048 au plus) garde un texel pour deux texels lus.
+			var source2D = source as Texture2D;
+			var mips = source2D != null ? Mathf.Max(1, source2D.mipmapCount) : 1;
+			var top = Mathf.Clamp(QualitySettings.masterTextureLimit, 0, mips - 1);
+			var lod = top;
+			while (lod < mips - 1 && (Mathf.Max(source.width, source.height) >> lod) > 4096) {
+				lod++;
+			}
+			var srcW = Mathf.Max(1, source.width >> lod);
+			var srcH = Mathf.Max(1, source.height >> lod);
+			var w = Mathf.Clamp(srcW / 2, 64, 2048);
+			var h = Mathf.Clamp(srcH / 2, 64, 2048);
+
+			// Pre-passe : deux canaux, demi-flottants si possible (le shader
+			// ramene ses valeurs dans 0..1, une cible 8 bits reste utilisable).
+			var preFormat = SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RGHalf)
+				? RenderTextureFormat.RGHalf
+				: SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf)
+					? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
+			var pre = new RenderTexture(w, h, 0, preFormat, RenderTextureReadWrite.Linear) {
+				name = "losketSeamPre",
+				useMipMap = false,
+				filterMode = FilterMode.Bilinear,
+				wrapMode = source.wrapMode,
+			};
+			pre.Create();
+
+			// Deux canaux : le joint, et le joint s'il est sombre (voir le
+			// shader). Valeurs lineaires, jamais de conversion sRGB.
+			var format = SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RG16)
+				? RenderTextureFormat.RG16 : RenderTextureFormat.ARGB32;
+			// Sortie du detecteur, avant lissage : meme format, sans mipmaps.
+			var raw = new RenderTexture(w, h, 0, format, RenderTextureReadWrite.Linear) {
+				name = "losketSeamRaw",
+				useMipMap = false,
+				filterMode = FilterMode.Bilinear,
+				wrapMode = source.wrapMode,
+			};
+			raw.Create();
+			rt = new RenderTexture(w, h, 0, format, RenderTextureReadWrite.Linear) {
 				name = "losketSeamMap:" + source.name,
 				useMipMap = true,
 				autoGenerateMips = true,
@@ -947,9 +1228,27 @@ namespace Losket
 				wrapMode = source.wrapMode,
 			};
 			rt.Create();
-			Graphics.Blit(source, rt, seamMapMaterial);
+
+			// Le niveau lu se compte depuis le premier niveau que le GPU detient.
+			seamMapMaterial.SetFloat("_SeamSrcLod", lod - top);
+			seamMapMaterial.SetVector("_SeamSrcTexel", new Vector4(1f / srcW, 1f / srcH, 0f, 0f));
+			// Graphics.Blit laisse sa cible active : on rend la main a celle
+			// qui l'etait, la pre-passe ne doit pas rester active une fois
+			// liberee.
+			var previous = RenderTexture.active;
+			Graphics.Blit(source, pre, seamMapMaterial, 0);
+			Graphics.Blit(pre, raw, seamMapMaterial, 1);
+			Graphics.Blit(raw, rt, seamMapMaterial, 2);
+			RenderTexture.active = previous;
+			pre.Release();
+			UnityEngine.Object.Destroy(pre);
+			raw.Release();
+			UnityEngine.Object.Destroy(raw);
+
 			seamMaps[source] = rt;
-			LosketBootstrap.Log("Carte de joints cuite pour '" + source.name + "' (" + w + "x" + h + ")");
+			seamGrids[source] = LosketRustSource.ReadGrid(rt);
+			LosketBootstrap.Log("Carte de joints cuite pour '" + source.name + "' (" + w + "x" + h +
+				", texture " + source.width + "x" + source.height + " lue au mip " + lod + ")");
 			return rt;
 		}
 

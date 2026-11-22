@@ -97,6 +97,15 @@ namespace Losket
 		 UI_ChooseOption]
 		public string presetName = LosketKeys.PresetSoot;
 
+		/// <summary>Type de bouclier du preregle Tuiles (LosketKeys.Shield*).
+		/// La ligne n'apparait dans le menu que lorsque ce preregle est choisi
+		/// (UpdateShieldField) ; la changer reapplique le preregle.</summary>
+		[KSPField(isPersistant = true, guiActiveEditor = false,
+			guiName = "#LOC_Losket_TileShield",
+			groupName = Group, groupDisplayName = GroupTitle),
+		 UI_ChooseOption]
+		public string tileShield = LosketKeys.ShieldFlight15;
+
 		[KSPField(guiActive = true, guiName = "#LOC_Losket_BurnAccum", guiFormat = "P0",
 			groupName = Group, groupDisplayName = GroupTitle)]
 		public float burnDisplay;
@@ -129,6 +138,27 @@ namespace Losket
 		[KSPField(isPersistant = true)] public float tileLength = 1.5f;
 		[KSPField(isPersistant = true)] public float tileFan = 6f;
 		[KSPField(isPersistant = true)] public float tileEdgeWear = 1f;
+		// Type de bouclier : 0 = vol 13, 1 = vol 15. Zero par defaut : une
+		// piece ou un preregle enregistres avant l'arrivee des types gardent
+		// l'aspect qu'ils avaient. C'est le preregle Tuiles qui pose 1.
+		[KSPField(isPersistant = true)] public float tileStyle;
+
+		// Graine des tirages du motif Tuiles : ou les joints fuient, ou une
+		// tuile a saute. Ces tirages se font par endroit de la texture ; sans
+		// graine, toutes les pieces d'un meme modele portaient leurs marques
+		// aux memes endroits, a chaque vol. Tiree a chaque remise a neuf (pas
+		// de tir, nettoyage) : chaque vol a ses defauts, et ils ne bougent plus
+		// tant que la piece garde sa brulure. Zero = tirages d'origine : c'est
+		// ce que gardent l'apercu de l'editeur et les pieces deja brulees au
+		// moment de la mise a jour.
+		[KSPField(isPersistant = true)] public float tileSeed;
+
+		/// <summary>Multiple de 16 : les tirages du shader ajoutent la graine
+		/// a un sel entier inferieur a 16, deux graines ne se recouvrent pas.</summary>
+		private static float NewTileSeed()
+		{
+			return 16f * UnityEngine.Random.Range(1, 256);
+		}
 
 		// --- Variante de piece (ModulePartVariants) ---
 		// Passer une piece en variante metal (ReStock : nom "Metallic", theme
@@ -210,6 +240,7 @@ namespace Losket
 			patternWindowMin = 0f;
 			patternWindowRange = -1f;
 			envState = LosketEnvelope.None;
+			tileSeed = NewTileSeed();
 		}
 
 		/// <summary>
@@ -329,9 +360,10 @@ namespace Losket
 				return;
 			}
 			// La boite englobante coute quelques renderers a parcourir : on ne
-			// la recalcule que dix fois par seconde environ, en etale.
-			if (!evt.guiActiveUnfocused ||
-			    (Time.frameCount + (GetInstanceID() & 0xFF)) % 6 == 0) {
+			// la recalcule que dix fois par seconde environ, en etale. Bouton
+			// masque compris : c'est le cas de toutes les pieces sales hors de
+			// portee, qui la recalculaient a chaque image.
+			if ((Time.frameCount + (GetInstanceID() & 0xFF)) % 6 == 0) {
 				var evaPos = FlightGlobals.ActiveVessel.transform.position;
 				cleanInReach = part.GetPartRendererBound().SqrDistance(evaPos) <
 				               CleanReach * CleanReach;
@@ -351,6 +383,15 @@ namespace Losket
 			// etaient stockes en clair.
 			affectedBy = LosketKeys.MigrateAffected(affectedBy);
 			presetName = LosketKeys.MigratePreset(presetName);
+
+			// Une piece au preregle Tuiles affiche le type qu'elle porte
+			// vraiment : vol 13 pour celles d'avant les types de bouclier.
+			if (presetName == LosketKeys.PresetTiles) {
+				tileShield = tileStyle > 0.5f
+					? LosketKeys.ShieldFlight15 : LosketKeys.ShieldFlight13;
+			} else if (System.Array.IndexOf(LosketKeys.ShieldOptions, tileShield) < 0) {
+				tileShield = LosketKeys.ShieldFlight15;
+			}
 
 			// Les pieces posees avant l'installation du mod (ou jamais editees)
 			// suivent le defaut global des reglages de partie.
@@ -375,6 +416,12 @@ namespace Losket
 				if (vessel != null && vessel.situation == Vessel.Situations.PRELAUNCH) {
 					Clean();
 				}
+				// Piece propre qui n'est pas passee par le pas de tir (vaisseau
+				// deja en vol a la mise a jour, assemblage en orbite) : elle
+				// tire sa graine ici. Une piece deja brulee garde ses marques.
+				if (tileSeed <= 0f && dose <= 0f) {
+					tileSeed = NewTileSeed();
+				}
 				dustModule = part.FindModuleImplementing<ModuleLosketDust>();
 				stowage = LosketStowage.For(part);
 				exhaustModule = part.FindModuleImplementing<ModuleLosketExhaust>();
@@ -392,7 +439,22 @@ namespace Losket
 				var preset = Fields["presetName"].uiControlEditor as UI_ChooseOption;
 				if (preset != null) {
 					preset.onFieldChanged = OnPresetChanged;
+					// Pieces en symetrie : KSP recopie presetName sur les
+					// contreparties puis n'appelle QUE onSymmetryFieldChanged
+					// (UIPartActionFieldItem.SetSymCounterpartValue). Sans ce
+					// branchement elles affichaient le nouveau preregle en
+					// gardant les valeurs de l'ancien.
+					preset.onSymmetryFieldChanged = OnPresetChanged;
 				}
+				var shield = Fields["tileShield"].uiControlEditor as UI_ChooseOption;
+				if (shield != null) {
+					shield.options = LosketKeys.ShieldOptions;
+					shield.display = LosketKeys.ShieldDisplay();
+					shield.onFieldChanged = OnShieldChanged;
+					shield.onSymmetryFieldChanged = OnShieldChanged;
+				}
+				Fields["tileShield"].guiActiveEditor = presetName == LosketKeys.PresetTiles;
+
 				RefreshPresetChoices();
 				LosketUserPresets.Changed += RefreshPresetChoices;
 
@@ -417,6 +479,34 @@ namespace Losket
 			if (presetName != LosketKeys.PresetCustom) {
 				ApplyPreset(presetName);
 			}
+		}
+
+		/// <summary>Type de bouclier change dans le menu (ou recopie par KSP
+		/// sur une contrepartie de symetrie) : le preregle Tuiles se reapplique
+		/// avec les valeurs de ce type.</summary>
+		private void OnShieldChanged(BaseField field, object oldValue)
+		{
+			if (presetName == LosketKeys.PresetTiles) {
+				ApplyPreset(LosketKeys.PresetTiles);
+			}
+		}
+
+		/// <summary>
+		/// La ligne "Bouclier" du menu n'existe que pour le preregle Tuiles.
+		/// Le preregle change par bien des chemins (menu, symetrie, fenetre de
+		/// reglages, variante de piece, preregle du joueur supprime) : plutot
+		/// que de les suivre un par un, on compare a chaque image dans
+		/// l'editeur. Le menu ne se reconstruit que lorsque l'etat bascule.
+		/// </summary>
+		private void UpdateShieldField()
+		{
+			var field = Fields["tileShield"];
+			var show = presetName == LosketKeys.PresetTiles;
+			if (field == null || field.guiActiveEditor == show) {
+				return;
+			}
+			field.guiActiveEditor = show;
+			MonoUtilities.RefreshPartContextWindow(part);
 		}
 
 		// --- Suivi de la variante de piece ---
@@ -565,10 +655,22 @@ namespace Losket
 					sootR = 0.5f; sootG = 0.49f; sootB = 0.47f;
 					temperIntensity = 0.3f; sharpness = 1.3f; streak = 1f;
 					noiseScale = 4f; pattern = 2f; bleach = 1f; matte = true;
-					// 16 % de joints : la valeur retenue par le joueur en jeu sur le
-					// Starship SEP (2026-11-06).
-					tileSize = 0.25f; tileLeak = 0.16f; tileBroken = 0.01f;
-					tileLength = 1.5f; tileFan = 6f; tileEdgeWear = 1f;
+					if (tileShield == LosketKeys.ShieldFlight13) {
+						// Vol 13 : longues trainees lachees par des zones de
+						// joints. 16 % de joints : la valeur retenue par le
+						// joueur en jeu sur le Starship SEP (2026-11-06).
+						tileStyle = 0f;
+						tileSize = 0.25f; tileLeak = 0.16f; tileBroken = 0.01f;
+						tileLength = 1.5f; tileFan = 6f; tileEdgeWear = 1f;
+					} else {
+						// Vol 15 : toutes les tuiles cernees de blanc, coulures
+						// courtes et etroites groupees par zones, voile leger,
+						// coulure de rouille sous une tuile manquante. Regle
+						// hors jeu sur les photos du vaisseau rattrape.
+						tileStyle = 1f;
+						tileSize = 0.25f; tileLeak = 0.25f; tileBroken = 0.01f;
+						tileLength = 0.5f; tileFan = 5f; tileEdgeWear = 1.2f;
+					}
 					break;
 				default:
 					return;
@@ -754,6 +856,7 @@ namespace Losket
 		private void LateUpdate()
 		{
 			if (HighLogic.LoadedSceneIsEditor) {
+				UpdateShieldField();
 				EditorPreviewUpdate();
 				return;
 			}
@@ -903,6 +1006,8 @@ namespace Losket
 			p.TileLength = tileLength;
 			p.TileFan = tileFan;
 			p.TileEdgeWear = tileEdgeWear;
+			p.TileStyle = tileStyle;
+			p.TileSeed = tileSeed;
 			return p;
 		}
 

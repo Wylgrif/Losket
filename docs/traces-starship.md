@@ -400,22 +400,61 @@ transport.
 
 - **Carte de joints cuite depuis la texture de base.** Une fois par texture,
   un petit shader de blit (`Losket/SeamMap`) applique un **détecteur de
-  lignes** à la luminance de la texture de base dans une RenderTexture
-  (moitié de la taille, R8, avec mipmaps) : dans douze directions, la
-  réponse en travers `|c − (a + b)/2|`, avec `a` et `b` à deux texels de
-  part et d'autre, doit se maintenir le long de la ligne (minimum sur 0, ±3
-  et ±6 texels, avec une tolérance d'un texel en travers aux positions
-  décalées, sinon les arêtes à 30° entre deux directions se perdent), et la
-  carte garde le maximum sur les directions. Une ligne longue
-  passe, un point, un grain ou un tiret court tombent. Un simple passe‑haut
-  prenait le grain de rivets de la texture d'inox SEP pour des joints (taches
-  blanches sur la coque, premier essai), et un détecteur à courte portée ses
-  tirets de 2×4 texels ; mesuré hors jeu sur les textures SEP : avec les
-  seuils 0,08 et 0,20, la coque n'a plus que ses soudures et les tuiles
-  gardent 84 % de leurs contours (32 % sans la tolérance). Les interstices, clairs ou sombres, ressortent ; une
+  lignes** à la texture de base dans une RenderTexture (moitié de la taille,
+  deux canaux de 8 bits, avec mipmaps) : dans douze directions, la réponse en travers
+  `c − (a + b)/2`, avec `a` et `b` à deux texels de part et d'autre, doit se
+  maintenir le long de la ligne (minimum sur 0, ±3 et ±6 texels, avec une
+  tolérance d'un texel en travers aux positions décalées, sinon les arêtes à
+  30° entre deux directions se perdent), et la carte garde le maximum sur
+  les directions. Une ligne longue passe, un point, un grain ou un tiret
+  court tombent. Un simple passe‑haut prenait le grain de rivets de la
+  texture d'inox SEP pour des joints (taches blanches sur la coque, premier
+  essai), et un détecteur à courte portée ses tirets de 2×4 texels. Une
   texture d'inox nu donne une carte presque vide, donc **pas de tuiles sur
-  l'inox, sans secteur tuilé ni réglage**. Les lignes de panneaux et de
-  soudure ressortent aussi, et en vrai elles fuient aussi.
+  l'inox, sans secteur tuilé ni réglage**. Les lignes de panneaux tracées
+  d'un trait net ressortent aussi, et en vrai elles fuient aussi.
+- **Contraste relatif, joints clairs et joints sombres** (2026‑11‑21). La
+  première version seuillait un écart **absolu** de luminance (0,08 à 0,20),
+  lu de fait au mip 1 de la texture : la cible fait la moitié de la source,
+  le GPU choisit ce niveau, et un joint d'un texel y est à moitié effacé. Or
+  SEP peint la même grille d'hexagones de trois façons : joints clairs
+  (Block 3 : 0,45 sur 0,12), très clairs (Block 2 : 0,95 sur 0,22) et
+  **sombres** (Block 1 et plusieurs volets : 0,035 sur 0,12). Mesuré sur le
+  GPU, l'ancienne carte valait en moyenne 0,008 sur le Block 3 (des tronçons
+  verticaux seulement), 0,002 sur le Block 1 (rien : le niveau de l'inox) et
+  0,068 sur le Block 2 (tout le réseau, en trait gras). La version en
+  service mesure un **rapport** de luminance :
+  - une pré‑passe lit, pour chaque texel de la carte, les quatre texels
+    pleine résolution qu'il recouvre, en log‑luminance, et en garde la
+    **moyenne** (un joint clair anticrénelé y reste un trait fin) et le
+    **minimum** (un joint sombre d'un texel y garde tout son contraste) ;
+  - le détecteur cherche les **crêtes** dans la moyenne et les **vallées**
+    dans le minimum, réponse signée, maintenue le long de la ligne dans la
+    même polarité ;
+  - de part et d'autre d'une ligne, la formule donne un lobe de signe opposé
+    et de moitié d'amplitude : on retranche à la réponse centrale la part de
+    signe opposé de ses voisins en travers. Les lobes s'annulent, un trait
+    épais reste entier, et une simple marche de luminance (bord d'île UV)
+    s'annule aussi.
+
+  ![Carte de joints avant et après, sur les trois peintures de tuiles de SEP](images/carte-joints-avant-apres.png)
+
+  Seuils 0,10 et 0,25 en log. Résultat, vérifié en faisant tourner le shader
+  sur le GPU hors jeu : 0,045 / 0,047 / 0,048 sur les tuiles des Blocks 3, 1
+  et 2, le même réseau à 93–103 % près, 0,001 sur l'inox du Block 3. Le
+  miroir numpy `Tools/seam_map.py` reproduit la carte du GPU au pixel près
+  (corrélation 1,000) : c'est lui qui sert à régler les seuils sur les
+  textures d'un autre mod. Une cuisson prend 20 à 60 ms pour une texture de
+  4096, et il n'y en a qu'une par image.
+- **Calage des gains.** Les gains des sources et de la coupure du revenu
+  avaient été réglés en jeu sur le Block 3 avec l'ancienne carte (0,008).
+  `LOSKET_SEAM_CAL` (0,18) dans `LosketBurnOverlay.cginc` ramène la carte
+  complète à ce niveau : le Block 3 garde la quantité de dépôt validée, les
+  Blocks 1 et 2 s'y alignent. L'usure des bords se lit trait par trait et
+  n'est pas calée : elle suit désormais tous les joints.
+- **Limite connue.** Avec la qualité de texture de KSP à demi‑résolution, le
+  GPU ne détient plus le mip 0 ; les joints sombres du Block 1 y valent 0,09
+  sur 0,12 et ne sont presque plus lus (0,006). Les joints clairs passent.
 - **Ce que SEP fait vraiment** (mesuré le 2026‑11‑05) : les tuiles sont une
   texture **répétée** à part, `SEP_B3_TILES_BASE`, 4096², hexagones de
   51 texels, joints clairs de 1 à 2 texels, portée par un maillage séparé de
@@ -432,9 +471,43 @@ transport.
   de joints (`tex2Dlod`, niveau de mip pris sur l'empreinte du pixel : le
   lissage à distance vient gratuitement des mipmaps). Les filaments restent
   calculés dans le plan tangent en mètres.
-- **Usure de bord sans grille.** Le bord amont d'une tuile est le côté aval
-  d'un joint : `carte(uv − v·δ) − carte(uv + v·δ)`, positif seulement là, à
-  moduler par l'exposition du joint au courant.
+- **Usure de bord sans grille.** Le contour des tuiles blanchit sur le
+  joint lui‑même. Sur les photos du vrai vaisseau (vol 13 de près, vaisseau
+  du vol 15 de très près), le blanc **est** l'interstice : flancs des tuiles
+  sans leur revêtement noir et garniture vue au fond du joint, en un trait
+  fin, net et continu. Trois versions se sont succédé :
+  1. le liseré décalé d'un texel et demi vers l'aval
+     (`carte(uv − v·δ) − carte(uv + v·δ)`, « bord amont de la tuile
+     suivante ») : une lecture fausse des photos. En jeu, une fois tous les
+     joints relevés, on voyait un second réseau d'hexagones à deux
+     centimètres du premier (retour du joueur du 2026‑11‑22) ;
+  2. la carte lue sans décalage, lissée à la cuisson par une tente 3×3
+     (passe 2 de `Losket/SeamMap`). Le décalage disparaît, mais la carte fait
+     la moitié de la texture : un joint oblique y est un escalier d'un texel,
+     qui se lit de près en chapelet de perles, et un joint vertical en trait
+     gras, à côté du trait fin de la texture ;
+  3. la version en service (2026‑11‑22) : de près, le liseré se lit **dans
+     la texture de la pièce** (`_TileBase`). La carte, lue floue, ne donne
+     plus que la bande où chercher ; le trait est là où la texture est plus
+     claire que son voisinage (rapport de luminance contre la texture lue
+     quatre niveaux de mip plus haut, seuils 0,25 et 0,7 en log). Le liseré
+     a donc la finesse et l'anticrénelage du trait peint et tombe dessus au
+     texel près, à la qualité de texture réglée dans KSP.
+
+  Cela ne vaut que pour les joints peints en clair. Un joint sombre (Block 1)
+  est un trait d'un seul texel, haché par la compression, que le filtrage
+  efface dès que la texture n'est plus agrandie. La cuisson écrit donc un
+  second canal : le joint là où la vallée l'emporte sur la crête (part
+  mesurée sur le GPU : 0,00 sur le Block 3, 0,92 sur le Block 1). Ces
+  joints‑là gardent la lecture de la carte, avec ses perles : **limite
+  connue**, le Block 1 n'a pas le liseré fin des Blocks 2 et 3.
+
+  À distance (un pixel couvre plus d'un texel de la carte) la lecture devient
+  proportionnelle à la carte. Son gain (0,45 pour un joint clair, 0,8 pour un
+  joint sombre) conserve la quantité de blanc du liseré de près à travers la
+  courbe de saturation de la suie : le réseau ne blanchit pas quand on
+  recule. La version 2 le multipliait par cinq (gain 2,2), d'où un vaisseau
+  quadrillé de blanc vu de loin, que les photos ne montrent pas.
 - **Fuites et tuiles cassées.** Plus d'identité de joint ; un champ aléatoire
   en cellules de **32 texels de la carte** (mises à l'échelle par le curseur
   de taille des tuiles) choisit les zones qui fuient et les tuiles cassées
@@ -442,6 +515,171 @@ transport.
   en texels et non en mètres : calculées depuis la densité de texels propre
   à chaque triangle, elles sautaient d'un triangle à l'autre sur le nez et
   dessinaient des rangées de triangles (premier essai).
+
+### 6.1 Deux types de bouclier : vol 13 et vol 15 (2026‑11‑22)
+
+Le bouclier a changé entre les vols, et ses traces avec lui. Le préréglage
+Tuiles a donc deux types, choisis par la ligne **Bouclier** qui apparaît dans
+le menu de la pièce quand ce préréglage est sélectionné (et par un sélecteur
+dans la fenêtre de réglages avancés). Le type est un uniforme du shader,
+`_TileStyle` (champ persistant `tileStyle`, enregistré dans les préréglages
+du joueur) : il change la façon de déposer, pas seulement des curseurs.
+
+| | Vol 13 (`_TileStyle` = 0) | Vol 15 (`_TileStyle` = 1) |
+|---|---|---|
+| Liseré | par plages de quelques tuiles, des tuiles gardent leur contour noir | toutes les tuiles cernées, variation lente (12 tuiles), jamais sous 60 % |
+| Fuites | une cellule grande comme une tuile fuit par tous ses joints | un point d'un joint (cellule d'un tiers de tuile, tirage lissé), gain triple |
+| Répartition | uniforme | par zones de trois mètres (bruit lisse à maille de cinq tuiles) : 1,75 fois plus dans une zone touchée, rien ailleurs |
+| Traînées | 1,5 m, éventail 6°, 16 % de joints | 0,5 m, éventail 5°, 25 % de joints |
+| Filaments | éteignent le dépôt jusqu'à 15 % | jusqu'à 40 % : coulures pleines dès leur départ |
+| Tuiles cassées | source blanche forte, liseré épais | coulure de rouille |
+| Voile | aucun | très léger, par plaques d'un mètre |
+
+Le type vol 15 a été réglé hors jeu sur quatre photos du vaisseau rattrapé
+par la tour (vue très rapprochée des tuiles, tuile seule, nez, vaisseau
+entier vu de dessous), d'abord dans une simulation numpy du motif, puis en
+faisant tourner le shader sur le GPU sur un demi‑cylindre de 9 m. Les pièces
+et les préréglages enregistrés avant l'arrivée des types gardent le vol 13
+(`tileStyle` absent vaut 0) ; le préréglage Tuiles choisi dans le menu pose
+le vol 15.
+
+![Types vol 13 et vol 15 rendus par le shader sur le GPU, hors jeu](images/bouclier-vol13-vol15.png)
+
+(Rendu de test : demi‑cylindre de 9 m, texture du Block 3 de SEP affichée
+sans éclairage, brûlure et exposition au maximum.)
+
+**Coulure de rouille.** Sur la photo du vaisseau entier, une tuile a sauté :
+l'acier mis à nu s'est oxydé sous la chauffe et l'oxyde a filé en aval, en
+une traînée brun‑orange d'un quart de la longueur du vaisseau. `TileRust` la
+reproduit sans marche, et **dans l'espace** : la tuile manquante est un point
+de la surface, la coulure une gaussienne en travers du courant (large comme
+la tuile à la source, + 3,5 cm par mètre), avec ses propres fibres. C'est
+une tache et non un trait : pleine juste derrière la tuile, elle pâlit vite
+(moitié à un tiers de sa longueur, un sixième au bout) et ondule le long du
+trajet. Le courant vient de la normale **lissée** du maillage (un
+interpolateur de plus) : le saut de direction d'une facette à l'autre
+décalait la coulure à chaque arête.
+
+La première version tirait la source dans la **texture** (grandes cellules de
+28 tuiles) et mesurait l'écart pixel‑source en UV. Troisième test en jeu
+(2026‑11‑22) : la coulure sortait en rectangles. Le nez du Starship SEP est
+découpé en anneaux d'un à trois mètres qui sont autant d'îles UV (146 îles
+pour ce seul maillage) ; une mesure en UV s'arrête à chaque bord d'île.
+Ce que fait la version actuelle :
+
+- **le tirage est fait par le C#** (`LosketRustSource`, appelé par
+  `LosketOverlayRig`), parce que le shader ne connaît la surface que par le
+  pixel qu'il dessine. La carte de joints de chaque texture est relue une
+  fois à gros grain (32 × 32 octets, juste après sa cuisson) pour savoir où
+  la texture porte des tuiles ; un triangle tuilé de la pièce est tiré au
+  hasard à proportion de sa surface (tirage à réservoir, graine de la pièce),
+  puis un point dans ce triangle. Les maillages skinnés et ceux qu'Unity ne
+  laisse pas lire sont ignorés. La position est gardée dans le repère du
+  maillage qui la porte : elle suit un aileron qui bouge ;
+- **présence** : les chances valent `tuiles cassées × surface tuilée × 0,4`
+  (au réglage par défaut : 42 % pour le nez SEP et ses 105 m² de tuiles,
+  quelques pour cent pour un aileron), soit à peu près une coulure par
+  vaisseau au lieu de deux ou trois, et jamais plus d'une par pièce. Monter
+  le curseur la fait apparaître, sans déplacer la source ;
+- **longueur** : 35 à 60 % du côté d'un carré de même surface que les tuiles
+  de la pièce (3,5 à 6 m sur le nez SEP) ;
+- **mesure** (shader, `_RustPos`, `_RustNormal` en espace motif) : l'écart
+  pixel‑source est rabattu dans le plan tangent du pixel, puis lu le long et
+  en travers de la **moyenne** du courant au pixel et du courant à la source
+  (règle du point milieu : la corde d'un arc est parallèle à la moyenne de
+  ses deux tangentes). Avec le seul courant du pixel, un courant qui diverge
+  (le nez, autour du point d'arrêt) donnait une coulure fantôme de l'autre
+  côté du point d'arrêt. Trois garde‑fous : même face que la source, corde
+  proche du plan tangent, courants voisins à moins de 80°.
+
+Limites : la coulure s'arrête au bord de la pièce (chaque pièce tire la
+sienne) ; vent exactement de face au ventre et source juste sous la pointe
+du nez, il reste une petite tache isolée à la pointe.
+
+**La tuile manquante elle‑même (2026‑11‑22).** Premier test en jeu de la
+coulure mesurée dans l'espace : elle sortait de nulle part, en pointe, et se
+lisait de loin comme un trait de feutre orange. Deux retouches.
+
+- *La tuile.* Après le tirage, le C# relit la carte de joints texel pour
+  texel dans une fenêtre de 128 texels autour de la source
+  (`LosketRustSource.ReadWindow`) et cherche la cellule fermée qui la
+  contient (`FindTile`) : 32 rayons partent du point et s'arrêtent au premier
+  joint, les paires de rayons opposés le recentrent jusqu'à ce qu'il ne bouge
+  plus, la portée moyenne donne le rayon. Les rayons qui filent par une arête
+  absente de la carte sont écartés (un remplissage par diffusion fuirait dans
+  la tuile voisine). La source est ramenée au centre de la tuile par la carte
+  affine du triangle tiré. Sur le nez SEP : tuile trouvée pour 55 tirages sur
+  60, rayon 12,5 texels (7,7 cm, soit l'hexagone de 16 cm du jeu) ; sinon la
+  coulure part d'un point, comme avant.
+- *Son dessin* (`TileHole`, uniforme `_RustTile`) : un pixel appartient à la
+  tuile si aucun joint ne coupe le segment qui le relie, en UV, à son centre
+  (dix lectures de la carte, cellule convexe), à moins de 1,25 rayon du
+  centre dans l'espace et en UV, sur le seul overlay qui la porte. Le pixel
+  posé sur un joint est exclu : le contour reste. Acier nu oxydé, brun sombre
+  marbré d'orange, visible dès que la pièce a un peu chauffé. Une arête
+  absente de la carte laisse un bord arrondi au lieu d'un bord droit.
+
+![Tuile manquante et coulure : de loin, à mi‑distance, de près](images/tuile-manquante.png)
+
+**Quantité de blanc (2026‑11‑22).** Même test : « un peu trop de marques
+blanches ». Le seuil des zones touchées passe de 0,35‑0,65 à 0,38‑0,66 et la
+densité dans une zone de 2 à 1,75 fois le réglage : un tiers de coulures en
+moins au même curseur (mesuré sur le rendu GPU du nez SEP : 0,64 à 0,69 fois
+la surface claire d'avant, sur trois graines). Le changement est dans le
+shader et non dans le préréglage : les pièces gardent la valeur du curseur
+qu'elles ont enregistrée.
+
+![Blanc avant et après, coulure de rouille de loin et de près, sur le vrai nez SEP](images/rouille-continue-et-blanc.png)
+
+(Rendu de test : maillage des tuiles du nez SEP Block 3 relu dans le .mu,
+vent de rentrée à 65° d'incidence, masque et fenêtre de flux du jeu.)
+
+**Graine par pièce et taille des zones (2026‑11‑22).** Deuxième test en jeu :
+le blanc tombait toujours du même côté du vaisseau, et la rouille toujours
+sur le même aileron. Deux causes, vues en rejouant le shader sur le GPU avec
+la direction de vent lue dans la sauvegarde du joueur :
+
+- tous les tirages (zones qui fuient, points de fuite, variation du liseré,
+  tuile manquante) se font par cellule de la carte, donc par endroit de la
+  **texture**. Rien n'y dépendait de la pièce ni du vol : deux pièces du même
+  modèle, et la même pièce d'un vol à l'autre, portaient leurs marques aux
+  mêmes endroits. Le shader ajoute maintenant `_TileSeed` au sel de chaque
+  tirage. La graine est un champ persistant de la pièce (`tileSeed`), tirée à
+  chaque remise à neuf (pas de tir, nettoyage en EVA) : chaque vol a ses
+  défauts, et ils ne bougent plus tant que la pièce garde sa brûlure. Zéro
+  garde les tirages d'origine : c'est le cas de l'aperçu de l'éditeur et des
+  pièces déjà brûlées au moment de la mise à jour ;
+- les zones de fuite utilisaient un bruit lisse à maille de dix tuiles. Un
+  bruit lisse fait des taches de deux mailles : six mètres, autant qu'un
+  demi‑ventre de Starship, d'où tout le blanc d'un seul côté. La maille passe
+  à cinq tuiles (taches de trois mètres, cinq ou six dans la largeur du
+  bouclier).
+
+![Zones de fuite : avant, puis quatre graines avec la maille de cinq tuiles](images/zones-de-fuite-et-graine.png)
+
+**Revenu sur le flanc d'inox (2026‑11‑22).** Premier test en jeu des deux
+types : le flanc sous le vent sortait d'un seul violet sur toute sa longueur.
+C'était le revenu, avec la formule générale `PeakTemp × (0,55 + 0,45 × masque)` :
+elle ne parcourt que la moitié haute de la LUT et le masque est presque plat
+de ce côté (0,28 au bord des tuiles, 0,05 à l'opposé), donc une seule teinte.
+Sur le vrai vaisseau (photo du S42 sur la tour), toutes les teintes défilent
+en un mètre le long du bord du bouclier : gris‑bleu contre les tuiles, bleu,
+pourpre, brun, paille, puis l'inox nu. En motif Tuiles la température suit
+donc l'angle au vent, `smoothstep(−0,68 ; −0,3 ; n·vent)`, soit pleine
+jusqu'à 107° du vent et nulle à 133° (le bord des tuiles de SEP est à 111°),
+et parcourt la LUT de 0,2 à 1. Le bruit qui fait onduler la frange est celui
+des taches : celui des stries dessinait des pelures d'oignon. Les autres
+motifs gardent la formule générale.
+
+L'opacité, elle, suivait encore le masque, que le gradient d'étalement
+(`proj²`, fenêtre du vaisseau entier) éteint vers l'aval : la frange ne se
+voyait que près du nez, et pas du tout dans la première vérification hors
+jeu, faite sans étalement. En motif Tuiles l'opacité suit donc
+`max(masque ; 0,35 × chauffe du bord)` : la frange court du nez à la queue
+(vérifié sur le GPU avec l'étalement du jeu), et elle reste absente sous
+35 % de brûlure environ.
+
+![Frange de revenu sur le flanc, rendue sur le GPU hors jeu](images/revenu-flanc-tuiles.png)
 
 Ce qui a disparu : la carte cylindrique, `HullChart`, le profil de coque,
 l'orientation des rangées et le secteur tuilé. Ce qui reste : la taille des
@@ -455,7 +693,8 @@ portée au plus (traînées coupées sur une bande d'un mètre et demi) ; la mar
 est droite en UV, sans la courbure des lignes de courant autour de la coque
 sur cette portée ; la texture de base doit porter les interstices (SEP oui ;
 un matériau TexturesUnlimited dont la texture principale est un masque ne
-donnera rien) ; une RenderTexture par matériau tuilé, de l'ordre du mégaoctet.
+donnera rien) ; une RenderTexture par texture tuilée, 11 Mo pour une
+texture de 4096 (2048², deux canaux, mipmaps).
 Coût estimé : un shader de blit dans le bundle, environ 250 lignes de shader
 et 120 lignes de C#.
 

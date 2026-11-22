@@ -1,6 +1,6 @@
 // Carte de joints du motif Tuiles : detecteur de LIGNES sur la texture de base
 // d'une piece, cuit UNE fois par texture dans une RenderTexture avec mipmaps
-// (LosketOverlayRig.SeamMapFor, deux Graphics.Blit). Les interstices entre
+// (LosketOverlayRig.SeamMapFor, trois Graphics.Blit). Les interstices entre
 // tuiles ressortent, qu'ils soient peints en clair ou en sombre et quel que
 // soit leur contraste ; une texture d'inox nu donne une carte presque vide,
 // donc pas de tuiles sur l'inox, sans aucun reglage.
@@ -45,6 +45,20 @@
 // directions et sur les deux polarites. Une ligne longue passe ; un point,
 // un grain ou un tiret court tombent (les rivets de l'inox SEP sont des
 // tirets de 2x4 texels qu'un detecteur a courte portee gardait).
+//
+// Le detecteur ecrit deux canaux : R = le joint, G = le joint s'il est SOMBRE
+// (la vallee l'emporte sur la crete), zero s'il est clair. Le rapport G / R
+// dit donc, joint par joint, de quelle peinture il s'agit. L'usure des bords
+// s'en sert : un joint clair se lit directement dans la texture de la piece,
+// a sa resolution ; un joint sombre, trait d'un seul texel que le filtrage
+// efface, se lit dans la carte (TileWear, LosketBurnOverlay.cginc).
+//
+// Passe 2, lissage : la carte sort du detecteur en traits d'un texel, presque
+// binaires. Agrandie par le filtrage bilineaire (vue de pres, l'usure des
+// bords la lit au pixel), une ligne oblique d'un texel se lit en chapelet :
+// ses texels ne se touchent que par les coins. Une tente 3x3 (quatre lectures
+// bilineaires aux coins du texel) remplit ces coins ; elle conserve la
+// moyenne, donc rien ne change pour le transport ni pour le calage.
 //
 // Calibre hors jeu sur SEP 3.3.2 avec Tools/seam_map.py, miroir numpy de ce
 // fichier : seuils 0,10 et 0,25 (en log), densite moyenne de la carte 0,045 /
@@ -121,7 +135,8 @@ Shader "Losket/SeamMap"
 		// Un texel de la texture d'origine vaut un demi-texel de la pre-passe.
 		float2 ts = _MainTex_TexelSize.xy * 0.5;
 		float2 f0 = Field(i.uv);
-		float best = 0.0;
+		float bestRidge = 0.0;
+		float bestValley = 0.0;
 		[loop]
 		for (int k = 0; k < 12; k++) {
 			float a = k * 0.2617994;
@@ -150,10 +165,28 @@ Shader "Losket/SeamMap"
 				ridge = min(ridge, max(max(c0.r, max(c1.r, c2.r)), 0.0));
 				valley = min(valley, max(-min(c0.g, min(c1.g, c2.g)), 0.0));
 			}
-			best = max(best, max(ridge, valley));
+			bestRidge = max(bestRidge, ridge);
+			bestValley = max(bestValley, valley);
 		}
+		float best = max(bestRidge, bestValley);
 		float seam = smoothstep(_SeamLow, _SeamHigh, best * LOSKET_LOG_RANGE);
-		return fixed4(seam, seam, seam, 1.0);
+		// G : le meme joint s'il est sombre (vallee au moins egale a la crete).
+		return fixed4(seam, seam * step(bestRidge, bestValley), 0.0, 1.0);
+	}
+
+	// --- Passe 2 ---
+
+	fixed4 fragSoft(v2f_img i) : SV_Target
+	{
+		// Quatre lectures bilineaires aux coins du texel : chacune moyenne
+		// quatre texels, l'ensemble vaut la tente [1 2 1] x [1 2 1] / 16.
+		float2 h = _MainTex_TexelSize.xy * 0.5;
+		float2 s = 0.25 * (
+			tex2Dlod(_MainTex, float4(i.uv + float2(-h.x, -h.y), 0.0, 0.0)).rg +
+			tex2Dlod(_MainTex, float4(i.uv + float2( h.x, -h.y), 0.0, 0.0)).rg +
+			tex2Dlod(_MainTex, float4(i.uv + float2(-h.x,  h.y), 0.0, 0.0)).rg +
+			tex2Dlod(_MainTex, float4(i.uv + float2( h.x,  h.y), 0.0, 0.0)).rg);
+		return fixed4(s.r, s.g, 0.0, 1.0);
 	}
 	ENDCG
 
@@ -179,6 +212,16 @@ Shader "Losket/SeamMap"
 			CGPROGRAM
 			#pragma vertex vert_img
 			#pragma fragment fragSeam
+			#pragma target 3.0
+			ENDCG
+		}
+
+		// Passe 2 : lissage de la carte (tente 3x3).
+		Pass
+		{
+			CGPROGRAM
+			#pragma vertex vert_img
+			#pragma fragment fragSoft
 			#pragma target 3.0
 			ENDCG
 		}

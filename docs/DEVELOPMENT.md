@@ -80,7 +80,10 @@ python Tools/seam_map.py path/to/texture.dds --out out --crop 2000,2000,192
 Runs a numpy mirror of the `Losket/SeamMap` bake shader on a part texture
 (DXT1/DXT5 `.dds`, or anything Pillow opens) and prints the mean density of
 the seam map: about 0.045 on the Starship SEP tile textures, under 0.005 on
-its bare steel. With `--out` it writes the map as a PNG, or with `--crop` a
+its bare steel. It also prints the share of dark seams (the map's second
+channel): 0 where the seams are painted lighter than the tiles, close to 1
+where they are painted darker; the close-up tile outline is read from the
+texture itself for light seams and from the map for dark ones. With `--out` it writes the map as a PNG, or with `--crop` a
 zoomed source/map pair. Use it when the Tiles pattern leaves a mod's heat
 shield unmarked: it shows what the detector reads in that texture, and lets
 you try other thresholds (`--low`, `--high`). It matches the GPU output to the

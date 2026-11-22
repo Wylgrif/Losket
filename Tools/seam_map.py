@@ -5,7 +5,9 @@ Losket/SeamMap (Unity/LosketShaders/Assets/Shaders/LosketSeamMap.shader).
     python Tools/seam_map.py texture.dds --crop 2000,2000,192
 
 Pour chaque texture : la densite moyenne de la carte (0,045 sur les tuiles du
-Starship SEP, moins de 0,005 sur son inox), les centiles de la reponse brute,
+Starship SEP, moins de 0,005 sur son inox), la part de joints sombres (canal G
+de la carte : 0 pour des joints peints en clair, 1 pour des joints peints en
+sombre), les centiles de la reponse brute,
 et, avec --out, la carte en PNG (ou un recadrage agrandi source | carte avec
 --crop x,y,taille, en texels de la texture).
 
@@ -82,7 +84,8 @@ def prepass(lum):
 
 
 def detect(mean_field, min_field, radius=SEAM_RADIUS):
-    """Passe 1 : reponse brute (en log) du detecteur de lignes longues.
+    """Passe 1 : reponse brute (en log) du detecteur de lignes longues, et
+    masque des texels ou la vallee (joint sombre) l'emporte sur la crete.
     Les decalages sont en texels de la texture d'origine, soit des
     demi-texels des champs, lus en bilineaire avec repetition."""
     cache_r, cache_g = {}, {}
@@ -97,7 +100,8 @@ def detect(mean_field, min_field, radius=SEAM_RADIUS):
         return tap(field, cache, px, py) - 0.5 * (
             tap(field, cache, px + ax, py + ay) + tap(field, cache, px - ax, py - ay))
 
-    best = np.zeros_like(mean_field)
+    best_ridge = np.zeros_like(mean_field)
+    best_valley = np.zeros_like(mean_field)
     for k in range(12):
         a = k * 0.2617994
         ux, uy = np.cos(a), np.sin(a)
@@ -124,10 +128,11 @@ def detect(mean_field, min_field, radius=SEAM_RADIUS):
                 across(min_field, cache_g, px - ux, py - uy, ax, ay)))
             ridge = np.minimum(ridge, np.maximum(ra, 0))
             valley = np.minimum(valley, np.maximum(-ga, 0))
-        best = np.maximum(best, np.maximum(ridge, valley))
+        best_ridge = np.maximum(best_ridge, ridge)
+        best_valley = np.maximum(best_valley, valley)
         cache_r.clear()
         cache_g.clear()
-    return best
+    return np.maximum(best_ridge, best_valley), best_valley >= best_ridge
 
 
 def smoothstep(lo, hi, x):
@@ -135,10 +140,18 @@ def smoothstep(lo, hi, x):
     return t * t * (3 - 2 * t)
 
 
+def soften(seam):
+    """Passe 2 : tente 3x3, avec repetition. Conserve la moyenne."""
+    k = np.array([0.25, 0.5, 0.25], dtype=np.float32)
+    return ndimage.convolve1d(ndimage.convolve1d(seam, k, 0, mode='wrap'), k, 1, mode='wrap')
+
+
 def seam_map(lum, low=SEAM_LOW, high=SEAM_HIGH):
-    """Carte de joints (0..1, moitie de la taille de la texture) et reponse brute."""
-    raw = detect(*prepass(lum))
-    return smoothstep(low, high, raw), raw
+    """Carte de joints (canal R, 0..1, moitie de la taille de la texture),
+    reponse brute, et canal G : le joint la ou il est sombre."""
+    raw, dark = detect(*prepass(lum))
+    seam = smoothstep(low, high, raw)
+    return soften(seam), raw, soften(seam * dark)
 
 
 def main():
@@ -153,10 +166,11 @@ def main():
         os.makedirs(args.out, exist_ok=True)
     for path in args.textures:
         lum = load_luminance(path)
-        seam, raw = seam_map(lum, args.low, args.high)
+        seam, raw, dark = seam_map(lum, args.low, args.high)
         pct = (90, 95, 98, 99)
-        print('%-44s %dx%d  densite %.4f  reponse brute %s' % (
+        print('%-44s %dx%d  densite %.4f  sombres %.2f  reponse brute %s' % (
             os.path.basename(path), lum.shape[1], lum.shape[0], seam.mean(),
+            dark.sum() / max(seam.sum(), 1e-9),
             ' '.join('p%d %.3f' % (p, v) for p, v in zip(pct, np.percentile(raw, pct)))))
         if not args.out:
             continue

@@ -217,9 +217,28 @@ The **Tiles** preset reproduces what a tiled heat shield such as Starship's
 actually comes back with. Hot gas gets into a few of the gaps between tiles
 and burns the material underneath; the white powder it makes is carried
 downstream by the airflow, fans out, thins out over a metre or two and
-crosses the tiles without stopping at the seams. Broken tiles leave the
-biggest plumes, and the upstream edge of each tile whitens where its black
-coating wears off.
+crosses the tiles without stopping at the seams. The gaps themselves turn
+white, in a thin line drawn exactly over the seams of the texture.
+
+The preset comes in two **heat shield** types, picked on a line that appears
+in the part menu when Tiles is selected:
+
+- **Flight 15** (the default): every tile outlined in white, short narrow
+  drips starting from the seams and gathered in patches, a very light haze,
+  and a missing tile: one hexagon of bare, oxidised steel with a rust stain
+  trailing downstream of it.
+- **Flight 13**: fewer, wider streaks a metre or two long, tiles outlined in
+  patches, broken tiles leaving the biggest white plumes.
+
+Parts and presets saved before the two types existed keep the Flight 13
+look.
+
+Where the seams leak and which tile goes missing is drawn again for each
+part on every launch (and after an EVA cleaning), so two flights of the same
+ship do not wear the same marks. The marks then stay put for as long as the
+part keeps its burn. A part carries at most one missing tile, picked on its
+tiled surface; with the default setting a whole Starship gets about one rust
+streak per flight, and many parts get none.
 
 The tiles are wherever the part's own texture draws them. Losket reads the
 seams out of the base texture once (a line detector on its contrast, baked
@@ -233,11 +252,15 @@ texture count as seams too, which is how real panel lines behave.
 
 The advanced settings window shows the preset's own sliders when the Tiles
 pattern is selected: tile size (sets how large the patches that leak are),
-the share of seams that leak and of tiles that are broken, how far a streak
-reaches, its fan angle and the edge wear. Pattern scale and sharpness set
-the fineness of the filaments the powder leaves. Two limits: where the
-texture's UV layout has a seam, streaks are cut over a streak's length, and
-a material whose main texture is not the painted one (some TexturesUnlimited
+the share of seams that leak and of tiles that are broken (with the Flight 15
+shield, how likely a missing tile and its rust streak are), how far a streak
+reaches, its fan angle, the edge wear and the shield type. Pattern scale and
+sharpness set the fineness of the filaments the powder leaves. Limits: where
+the texture's UV layout has a seam, the white streaks are cut over a streak's
+length (the rust streak is measured in space and crosses UV seams); a rust
+streak stops at the edge of its part; seams painted darker than the
+tiles get a coarser outline up close than seams painted lighter; and a
+material whose main texture is not the painted one (some TexturesUnlimited
 setups) shows nothing. The physics and the design are written up in
 `docs/traces-starship.md`.
 

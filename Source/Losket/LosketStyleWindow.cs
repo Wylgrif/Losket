@@ -117,6 +117,15 @@ namespace Losket
 					m.tileFan, 0f, 20f);
 				m.tileEdgeWear = Slider(Localizer.Format("#LOC_Losket_Win_TileEdge"),
 					m.tileEdgeWear, 0f, 2f);
+				// Type de bouclier : change la facon dont le shader depose
+				// (voir _TileStyle), pas seulement des valeurs de curseurs.
+				GUILayout.BeginHorizontal();
+				GUILayout.Label(Localizer.Format("#LOC_Losket_TileShield"), GUILayout.Width(110f));
+				m.tileStyle = GUILayout.Toolbar(m.tileStyle > 0.5f ? 1 : 0, new[] {
+					Localizer.Format("#LOC_Losket_Shield_Flight13"),
+					Localizer.Format("#LOC_Losket_Shield_Flight15"),
+				});
+				GUILayout.EndHorizontal();
 			}
 
 			// Reflets sous le depot : eteints (suie, poussiere) ou conserves

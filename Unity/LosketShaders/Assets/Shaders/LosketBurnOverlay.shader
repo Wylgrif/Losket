@@ -104,12 +104,19 @@ Shader "Losket/BurnOverlay"
 		// LosketBurnOverlay.cginc et docs/traces-starship.md.
 		_SeamMap ("Carte de joints de la texture de base", 2D) = "black" {}
 		_SeamOn ("Carte de joints posee", Range(0, 1)) = 0
+		_TileBase ("Texture de base, pour le lisere de pres", 2D) = "black" {}
+		_TileBaseLod ("Niveau de mip de la texture au texel de la carte", Float) = 1
 		_TileSize ("Taille des tuiles (m)", Range(0.05, 1)) = 0.25
 		_LeakFrac ("Part des joints qui fuient", Range(0, 0.3)) = 0.16
 		_BrokenFrac ("Part des tuiles cassees", Range(0, 0.05)) = 0.01
 		_StreakLength ("Portee des trainees (m)", Range(0.2, 5)) = 1.5
 		_FanTan ("Tangente du demi-angle d'eventail", Float) = 0.105
 		_EdgeWear ("Usure des bords", Range(0, 2)) = 1
+		_TileStyle ("Type de bouclier (0 = vol 13, 1 = vol 15)", Range(0, 1)) = 0
+		_TileSeed ("Graine des tirages du motif Tuiles", Float) = 0
+		_RustPos ("Tuile manquante (xyz espace motif, w = presente)", Vector) = (0, 0, 0, 0)
+		_RustNormal ("Normale a la tuile manquante (xyz), longueur de coulure (w)", Vector) = (0, 1, 0, 4)
+		_RustTile ("Tuile manquante : centre UV (xy), rayon UV (z), rayon en metres (w)", Vector) = (0, 0, 0, 0)
 	}
 
 	SubShader

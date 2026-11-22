@@ -25,6 +25,24 @@ namespace Losket
 		public const string PresetTiles = "Tiles";
 		public const string PresetCustom = "Custom";
 
+		/// <summary>Types de bouclier du preregle Tuiles : l'etat du vrai
+		/// Starship apres la rentree du vol 13 (longues trainees blanches) et
+		/// apres celle du vol 15 (lisere regulier, coulures courtes, coulure
+		/// de rouille sous une tuile manquante). Voir docs/traces-starship.md.</summary>
+		public const string ShieldFlight13 = "Flight13";
+		public const string ShieldFlight15 = "Flight15";
+
+		public static readonly string[] ShieldOptions = { ShieldFlight15, ShieldFlight13 };
+
+		/// <summary>Libelles de ShieldOptions, dans le meme ordre.</summary>
+		public static string[] ShieldDisplay()
+		{
+			return new[] {
+				Localizer.Format("#LOC_Losket_Shield_Flight15"),
+				Localizer.Format("#LOC_Losket_Shield_Flight13"),
+			};
+		}
+
 		/// <summary>Prefixe des cles de preregles enregistres par le joueur :
 		/// "User:Mon reglage". Le nom qui suit est celui du fichier dans
 		/// PluginData/Presets.</summary>

@@ -62,8 +62,36 @@ float _SpotRadius, _SpotStretch, _SootGain, _SpotCut, _NoiseWarp;
 sampler2D _SeamMap;
 float4 _SeamMap_TexelSize;
 float _SeamOn;
+// Texture de base de la piece, pour le lisere de pres (TileWear), et niveau
+// de mip de cette texture dont le texel vaut celui de la carte (1 d'ordinaire :
+// la carte fait la moitie de la texture).
+sampler2D _TileBase;
+float _TileBaseLod;
 float _TileSize, _LeakFrac, _BrokenFrac, _StreakLength;
 float _FanTan, _EdgeWear;
+// Type de bouclier : 0 = vol 13 (trainees longues lachees par des zones de
+// joints, tuiles cassees), 1 = vol 15 (lisere regulier, coulures courtes et
+// groupees, voile, coulure de rouille sous une tuile manquante).
+float _TileStyle;
+// Graine des tirages du motif (zones qui fuient, points de fuite, variation
+// du lisere, tuile manquante de la coulure de rouille). Les tirages se font
+// par cellule de la carte, donc par endroit de la TEXTURE : sans graine, deux
+// pieces du meme modele, et la meme piece d'un vol a l'autre, portaient leurs
+// marques exactement aux memes endroits (la coulure de rouille toujours sur
+// le meme aileron, retour du joueur du 2026-11-22). Le C# tire une graine par
+// piece a chaque remise a neuf ; 0 garde les tirages d'avant la graine.
+float _TileSeed;
+// Tuile manquante de la coulure de rouille, tiree par le C# sur le maillage.
+// _RustPos : xyz = position en espace motif, w = 1 si la piece en porte une.
+// _RustNormal : xyz = normale de la surface a cet endroit (espace motif),
+// w = longueur de la coulure en metres.
+float4 _RustPos, _RustNormal;
+// La tuile elle-meme, calee par le C# sur la cellule de la texture qui
+// contient la source. xy = UV de son centre (UV du pixel, echelle et decalage
+// du materiau compris), z = son rayon en UV, sur le seul overlay qui la porte
+// (0 ailleurs), w = son rayon en metres (0 si aucune cellule fermee n'a ete
+// trouvee : la coulure part alors d'un point).
+float4 _RustTile;
 
 // Valeur de la suie en pleine couche : 1 - exp(-3), le plafond de la courbe
 // de saturation ci-dessous. Sert a ramener la couverture a 1.
@@ -95,6 +123,7 @@ struct v2f
 	float3 sPos : TEXCOORD2;
 	float2 uv : TEXCOORD3;
 	float3 pPos : TEXCOORD4;
+	float3 sNormal : TEXCOORD5;   // normale du maillage en espace motif
 };
 
 // Resultat du calcul de depot en un pixel, avant ecriture.
@@ -209,8 +238,8 @@ float wnoise(float3 p, float amount)
 //  3. transport : N pas, attenuation, eventail (trois prelevements), premier
 //     pas decale par un bruit lisse (un hash par pixel scintille) ;
 //  4. filaments alignes sur le courant, dans le plan tangent, en metres ;
-//  5. usure de bord : le cote aval d'un joint, qui est le bord amont de la
-//     tuile suivante, blanchit : carte(uv - v d) - carte(uv + v d).
+//  5. usure de bord : le joint lui-meme blanchit, la ou la carte le place,
+//     donc exactement sur le trait de la texture.
 // Limites : aux coutures UV la marche lit l'ile voisine sur une portee au
 // plus ; la marche est droite en UV (pas de courbure des lignes de courant
 // sur cette portee).
@@ -223,8 +252,11 @@ struct TileFrame
 	float2 sideUV;     // deplacement UV pour 1 m en travers
 	float3 t;          // courant de surface, espace motif, unitaire
 	float3 side;       // travers, espace motif, unitaire
+	float3 T, B;       // dpos/du, dpos/dv du triangle, espace motif
+	float3 n;          // normale du triangle, espace motif
 	float2 cellUV;     // taille UV d'une cellule grande comme une tuile
 	float lod0;        // niveau de mip de la carte pour l'empreinte du pixel
+	float lodRaw;      // le meme, non borne : negatif quand la carte est agrandie
 	float texelsPerM;  // texels de la carte par metre le long du courant
 	float pxm;         // metres par pixel sur la surface
 	bool ok;
@@ -252,6 +284,9 @@ TileFrame TileBuildFrame(float3 sPos, float2 uv, float3 dl)
 	float3 side = normalize(cross(n, t));
 	f.t = t;
 	f.side = side;
+	f.T = T;
+	f.B = B;
+	f.n = n;
 	// Projection sur (T, B) par moindres carres (matrice de Gram).
 	float tt = dot(T, T), bb = dot(B, B), tb = dot(T, B);
 	float g = tt * bb - tb * tb;
@@ -268,7 +303,8 @@ TileFrame TileBuildFrame(float3 sPos, float2 uv, float3 dl)
 	f.cellUV = _SeamMap_TexelSize.xy * (32.0 * max(_TileSize, 0.02) / 0.25);
 	// Niveau de mip pour l'empreinte du pixel, texels de la carte par metre.
 	float2 fw = max(abs(du1), abs(du2)) * _SeamMap_TexelSize.zw;
-	f.lod0 = max(0.0, log2(max(max(fw.x, fw.y), 1e-4)));
+	f.lodRaw = log2(max(max(fw.x, fw.y), 1e-4));
+	f.lod0 = max(0.0, f.lodRaw);
 	f.texelsPerM = length(f.flowUV * _SeamMap_TexelSize.zw);
 	return f;
 }
@@ -283,21 +319,58 @@ float TileSeam(float2 uv, float lod)
 float TileCellHash(float2 uv, float2 cellUV, float salt)
 {
 	float2 c = floor(uv / cellUV);
-	return hash13(float3(c, salt));
+	return hash13(float3(c, salt + _TileSeed));
+}
+
+// Le meme tirage, lisse : interpole entre les cellules voisines. Sert a ce
+// qui se voit a l'echelle du pixel (usure des bords) : un tirage par cellule
+// y decoupait des rectangles nets au milieu d'un joint. Sert aussi, a grande
+// maille, a regrouper les coulures du type vol 15 par zones.
+float TileCellNoise(float2 uv, float2 cellUV, float salt)
+{
+	float2 g = uv / cellUV - 0.5;
+	float2 c = floor(g);
+	float2 w = g - c;
+	w = w * w * (3.0 - 2.0 * w);
+	salt += _TileSeed;
+	float h00 = hash13(float3(c, salt));
+	float h10 = hash13(float3(c + float2(1.0, 0.0), salt));
+	float h01 = hash13(float3(c + float2(0.0, 1.0), salt));
+	float h11 = hash13(float3(c + float2(1.0, 1.0), salt));
+	return lerp(lerp(h00, h10, w.x), lerp(h01, h11, w.x), w.y);
 }
 
 // Ce que la surface lache en un point de la carte, par metre de trajet.
-float TileSources(TileFrame f, float2 uv, float lod)
+// leakFrac : part des cellules qui fuient autour du pixel (TileDeposit).
+//
+// Type vol 13 : une cellule grande comme une tuile fuit par tous ses joints,
+// et une tuile cassee lache trois fois plus : des trainees larges, peu
+// nombreuses. Type vol 15 : les cellules font un tiers de tuile, chaque fuite
+// est un POINT d'un joint et donne une coulure etroite qui part du trait
+// blanc (photos rapprochees du vaisseau du vol 15 : deux a quatre coulures
+// par tuile dans les zones touchees, aucune ailleurs). Le gain monte pour
+// qu'un point seul se voie ; les tuiles cassees n'y lachent pas de blanc,
+// elles donnent la coulure de rouille (TileRust).
+float TileSources(TileFrame f, float2 uv, float lod, float leakFrac)
 {
 	float seam = TileSeam(uv, lod);
-	float leakFrac = max(_LeakFrac, 0.001);
-	float leak = smoothstep(1.0 - leakFrac, 1.0, TileCellHash(uv, f.cellUV, 1.0));
+	float leak;
+	[branch] if (_TileStyle > 0.5) {
+		// Tirage lisse : un tirage par cellule donnait aux coulures des bords
+		// droits et un quadrillage visible de pres. Le seuil est resserre
+		// pour garder a peu pres la meme part de joints qui fuient.
+		float t0 = 1.0 - 0.6 * leakFrac;
+		leak = smoothstep(t0, t0 + 0.12, TileCellNoise(uv, f.cellUV * 0.3, 1.0));
+	} else {
+		leak = smoothstep(1.0 - leakFrac, 1.0, TileCellHash(uv, f.cellUV, 1.0));
+	}
 	float broken = step(1.0 - _BrokenFrac, TileCellHash(uv, f.cellUV, 3.0));
 	// Gain : un joint fait un centimetre (deux texels d'une texture de 4096
 	// pour des hexagones de 51 texels), douze fois moins que la bande d'un
 	// quart de tuile de l'ancienne grille. LOSKET_SEAM_CAL ramene la carte
 	// complete au niveau de celle sur laquelle ces gains ont ete regles.
-	return seam * LOSKET_SEAM_CAL * (leak * 18.0 + broken * 48.0);
+	return seam * LOSKET_SEAM_CAL * (leak * lerp(18.0, 60.0, _TileStyle) +
+		broken * 48.0 * (1.0 - _TileStyle));
 }
 
 // Depot transporte : remonte le courant en UV et somme les sources amont,
@@ -312,14 +385,29 @@ float TileDeposit(TileFrame f, float3 sPos)
 	// cette largeur se somme a une constante le long de la marche.
 	float lod = max(f.lod0, log2(max(ds * f.texelsPerM, 1.0)));
 	float jitter = vnoise(float3(sPos * 9.0 + 3.3));
+	// Type vol 15 : les fuites se regroupent par zones d'une dizaine de
+	// tuiles (bruit lisse, moyenne conservee : deux fois plus de fuites dans
+	// une zone touchee, aucune dans une zone epargnee). Tire une fois, au
+	// pixel : la portee est courte devant la taille d'une zone.
+	// Maille de cinq tuiles : un bruit lisse fait des taches de deux mailles,
+	// soit trois metres. A dix tuiles les taches en faisaient six, autant
+	// qu'un demi-ventre de Starship : tout le blanc tombait d'un seul cote
+	// du vaisseau (retour du joueur du 2026-11-22).
+	// Quantite (retour du joueur du 2026-11-22, "un peu trop de marques
+	// blanches") : seuil des zones releve et densite dans une zone baissee,
+	// soit a peu pres 40 % de coulures en moins au meme reglage. Les zones
+	// touchees couvrent un bon tiers du bouclier au lieu de la moitie.
+	float leakFrac = max(_LeakFrac, 0.001);
+	float cluster = smoothstep(0.38, 0.66, TileCellNoise(f.uv, f.cellUV * 5.0, 7.0));
+	leakFrac = max(leakFrac * lerp(1.0, 1.75 * cluster, _TileStyle), 0.001);
 	float2 q = f.uv - f.flowUV * (ds * jitter);
 	float acc = 0.0;
 	[loop] for (int k = 1; k <= N; k++) {
 		q -= f.flowUV * ds;
 		float s = (k + jitter) * ds;
 		float2 lat = f.sideUV * (s * _FanTan);
-		float taps = TileSources(f, q, lod) +
-			0.5 * (TileSources(f, q + lat, lod) + TileSources(f, q - lat, lod));
+		float taps = TileSources(f, q, lod, leakFrac) +
+			0.5 * (TileSources(f, q + lat, lod, leakFrac) + TileSources(f, q - lat, lod, leakFrac));
 		acc += taps * 0.5 * exp(-s / decay) * ds;
 	}
 	return acc;
@@ -340,31 +428,203 @@ float TileFilaments(TileFrame f, float3 sPos)
 	return pow(saturate(1.0 - abs(2.0 * n1 - 1.0) - 0.3 * n2), max(_Sharpness, 0.5));
 }
 
-// Usure de bord au pixel : le cote aval d'un joint est le bord amont de la
-// tuile suivante, et c'est lui qui blanchit. Une tuile cassee montre un
-// lisere epais sur son bord amont.
+// Usure de bord au pixel : le contour des tuiles blanchit. Sur les photos du
+// vrai Starship apres rentree, ce lisere est fin, net et pose SUR le joint
+// (c'est le bord des deux tuiles voisines qui s'use, de part et d'autre de
+// l'interstice). On lit donc la carte la ou est le pixel, sans decalage :
+// le lisere tombe exactement sur le trait de la texture. Une premiere version
+// le decalait d'un texel et demi vers l'aval ("bord amont de la tuile
+// suivante") : en jeu on voyait un second reseau d'hexagones a deux
+// centimetres du premier, en chapelet.
+//
+// De pres, la carte ne suffit pas : elle fait la moitie de la texture, ses
+// traits ont un texel de large, et un joint oblique s'y lit en escalier.
+// Agrandi a l'ecran, cela donnait un chapelet de perles sur les obliques et
+// un trait gras sur les verticales, a cote du trait fin et lisse de la
+// texture. Le lisere se lit donc DANS LA TEXTURE de la piece (_TileBase) :
+// la carte, lue floue, ne donne plus que la bande ou chercher (trois texels
+// de part et d'autre du joint), et le trait lui-meme est la ou la texture
+// est plus claire que son voisinage, en rapport de luminance comme a la
+// cuisson. Il a ainsi la finesse et l'anticrenelage du trait peint, et tombe
+// dessus au texel pres.
+// Cela ne vaut que pour les joints peints en clair. Un joint sombre (Starship
+// SEP Block 1) est un trait d'un seul texel que le filtrage efface des que
+// la texture n'est plus agrandie : la carte dit de quelle peinture il
+// s'agit (canal G), et ces joints-la gardent la lecture de la carte.
+//
+// Des que le pixel couvre plus d'un texel de la carte on passe a une lecture
+// proportionnelle. Son gain conserve la quantite de blanc du lisere de pres
+// (4,5 % de la surface pour un joint clair, 7,5 % pour un joint sombre, a
+// travers la courbe de saturation de la suie) : le reseau ne blanchit pas
+// quand on recule. La premiere version le multipliait par cinq.
+// Type vol 13 : l'intensite varie par plages de quelques tuiles (bruit
+// lisse), des tuiles gardent leur contour noir ; une tuile cassee garde un
+// lisere epais sur son bord amont. Type vol 15 : toutes les tuiles sont
+// cernees de blanc, l'intensite ne varie que lentement (une douzaine de
+// tuiles) et ne descend pas sous 60 % ; pas de lisere epais.
+float TileLogLum(float2 uv, float lod)
+{
+	float3 c = tex2Dlod(_TileBase, float4(uv, 0.0, lod)).rgb;
+	return log(max(dot(c, float3(0.299, 0.587, 0.114)), 0.0) + 0.03);
+}
+
 float TileWear(TileFrame f)
 {
 	float lod = f.lod0;
+	float s = TileSeam(f.uv, lod);
+	// Bande autour du joint et part sombre, lues un niveau et demi plus haut.
+	float2 wide = tex2Dlod(_SeamMap, float4(f.uv, 0.0, lod + 1.5)).rg;
+	float band = smoothstep(0.03, 0.12, wide.r);
+	float dark = saturate(wide.g / max(wide.r, 1e-3));
+	// Joint clair : la texture au pixel contre son voisinage (seize texels).
+	float baseLod = max(f.lodRaw + _TileBaseLod, 0.0);
+	float ridge = TileLogLum(f.uv, baseLod) - TileLogLum(f.uv, baseLod + 4.0);
+	float nearEdge = lerp(band * smoothstep(0.25, 0.7, ridge), smoothstep(0.08, 0.42, s), dark);
+	float farEdge = saturate(s * lerp(0.45, 0.8, dark));
+	float edge = lerp(nearEdge, farEdge, saturate(lod));
+	float patchy = 0.15 + 0.85 * smoothstep(0.35, 0.75, TileCellNoise(f.uv, f.cellUV * 2.0, 4.0));
+	float even = 0.6 + 0.4 * TileCellNoise(f.uv, f.cellUV * 12.0, 4.0);
+	float var = lerp(patchy, even, _TileStyle);
 	// Un texel et demi de la carte, au niveau lu, le long du courant.
 	float2 d = f.flowUV / max(f.texelsPerM, 1e-4) * (1.5 * exp2(lod));
-	float up = TileSeam(f.uv - d, lod);
-	float down = TileSeam(f.uv + d, lod);
-	float edge = saturate(up - down);
-	float var = 0.25 + 0.75 * smoothstep(0.5, 1.0, TileCellHash(f.uv, f.cellUV, 4.0));
 	float broken = step(1.0 - _BrokenFrac, TileCellHash(f.uv, f.cellUV, 3.0));
 	float chip = broken * saturate(TileSeam(f.uv - d * 2.0, lod + 2.0) * 3.0 - 0.3) * 1.5;
-	return var * edge * 0.6 + chip;
+	return var * edge * 0.6 + chip * (1.0 - _TileStyle);
+}
+
+// Coulure de rouille (type vol 15). Une tuile a saute : l'acier mis a nu
+// s'oxyde sous la chauffe et l'oxyde file en aval, en une trainee
+// brun-orange longue de plusieurs metres, etroite a la source (une tuile) et
+// qui s'ouvre lentement. Photo du vaisseau du vol 15 sur la tour : une seule
+// coulure, d'un quart de la longueur du vaisseau.
+//
+// La tuile manquante est un POINT DE LA SURFACE, tire par le C# sur le
+// maillage de la piece (LosketRustSource : un triangle tuile au hasard, a
+// proportion de sa surface) et donne en espace motif. La coulure se mesure
+// dans l'espace : l'ecart entre le pixel et la source, rabattu dans le plan
+// tangent du pixel, se lit le long et en travers du courant, en metres.
+// La premiere version tirait la source dans la TEXTURE et mesurait l'ecart
+// en UV : sur le nez du Starship SEP, decoupe en anneaux qui sont autant
+// d'iles UV, la coulure s'arretait net a chaque bord d'anneau et ressortait
+// en rectangles (retour du joueur du 2026-11-22).
+//
+// Le courant vient de la normale LISSEE du maillage et non de celle du
+// triangle : sur plusieurs metres, le saut de direction d'une facette a
+// l'autre (7 degres sur un cylindre de 48 pans) decalait la coulure a chaque
+// arete. La marche courte du depot blanc garde la normale du triangle.
+//
+// Direction de la coulure : la MOYENNE du courant au pixel et du courant a
+// la source (regle du point milieu : la corde d'un arc est parallele a la
+// moyenne de ses deux tangentes). Avec le seul courant du pixel, un courant
+// qui diverge (le nez, autour du point d'arret) donnait une seconde ligne de
+// pixels "en aval" de la source, de l'autre cote du point d'arret : une
+// coulure fantome, vue sur le rendu GPU du nez SEP. Une source posee sur le
+// point d'arret lui-meme n'a pas de courant pour emporter l'oxyde : sa
+// coulure est raccourcie.
+// Garde-fous : la face doit regarder du meme cote que la source, et la
+// corde pixel-source rester proche du plan tangent, sinon la coulure
+// reparaitrait sur la face opposee de la piece.
+// Limite : la coulure s'arrete au bord de la piece (chaque piece tire la
+// sienne).
+float TileRust(float3 sPos, float3 nTri, float3 nSmooth, float3 dl, float pxm)
+{
+	float nl = length(nSmooth);
+	// Sans normales de maillage : celle du triangle, tournee vers le vent.
+	float3 n = nl > 0.5 ? nSmooth / nl : nTri * (dot(nTri, dl) < 0.0 ? -1.0 : 1.0);
+	float3 t = -(dl - n * dot(dl, n));
+	float tl = length(t);
+	t = t / max(tl, 1e-4);
+	// Courant a la source, rabattu dans le plan tangent du pixel.
+	float3 nS = _RustNormal.xyz;
+	float3 tS = -(dl - nS * dot(dl, nS));
+	float sS = length(tS);
+	tS = tS - n * dot(tS, n);
+	tS = tS / max(length(tS), 1e-4);
+	float3 tm = t + tS;
+	float tml = length(tm);
+	tm = tm / max(tml, 1e-3);
+	float3 side = cross(n, tm);
+	float3 d = sPos - _RustPos.xyz;
+	float dn = dot(d, n);
+	float3 dt = d - n * dn;
+	// Ecart en metres : a le long de la coulure, b en travers.
+	float a = dot(dt, tm);
+	float b = dot(dt, side);
+	float len = max(_RustNormal.w, 0.1) * lerp(0.35, 1.0, smoothstep(0.05, 0.4, sS));
+	// Large comme la tuile manquante a la source, elle s'ouvre de 3,5 cm par
+	// metre. C'est une tache et non un trait : pleine juste derriere la
+	// tuile, elle palit vite (moitie a un tiers de sa longueur, un sixieme
+	// au bout) et son intensite ondule le long du trajet. Premier test en
+	// jeu de la coulure mesuree dans l'espace : un ruban orange uniforme, lu
+	// de loin comme un trait de feutre.
+	float w = lerp(0.06, 0.7 * _RustTile.w, step(1e-4, _RustTile.w)) + max(a, 0.0) * 0.035;
+	float along = saturate(a / len);
+	float env = smoothstep(-0.05, 0.12, a) * (0.15 + 0.85 * exp(-2.6 * along)) *
+		(1.0 - smoothstep(0.75, 1.0, along)) *
+		(0.6 + 0.4 * vnoise(float3(a * 1.7, 5.3, 1.9)));
+	float sameFace = smoothstep(0.0, 0.4, dot(n, nS)) *
+		(1.0 - smoothstep(0.3, 0.55, abs(dn) / max(length(d), 0.05)));
+	// Courants trop differents au pixel et a la source (plus de 80 degres),
+	// ou pixel en amont de la source au sens du courant a la source : pas la
+	// meme ligne de courant.
+	float dtl = length(dt);
+	float sameFlow = smoothstep(1.3, 1.7, tml) *
+		lerp(1.0, smoothstep(0.4, 0.75, dot(dt, tS) / max(dtl, 1e-3)), smoothstep(0.1, 0.4, dtl));
+	// Fibres de la coulure, dans ses propres coordonnees (en travers, etirees
+	// le long) : continues d'une facette a l'autre, la ou les filaments du
+	// depot blanc, cales sur la normale du triangle, la decoupaient en blocs.
+	// Leur nombre est constant en travers (elles s'ecartent avec la coulure).
+	// Fondues vers leur moyenne quand elles passent sous trois pixels.
+	float fk = 2.6 / w;
+	float fibres = lerp(0.6, 0.25 + 0.75 * vnoise(float3(b * fk, a * 0.8, 3.7)),
+		saturate((0.33 - pxm * fk) / 0.2));
+	return _RustPos.w * step(1e-4, tl) * sameFace * sameFlow * env * fibres *
+		exp(-(b * b) / (w * w));
+}
+
+// La tuile manquante elle-meme : l'hexagone d'acier nu d'ou part la coulure.
+// Sans elle la coulure sortait de nulle part, en pointe (retour du joueur du
+// 2026-11-22). C'est la cellule de la TEXTURE qui contient la source : un
+// pixel en fait partie si aucun joint ne coupe le segment qui le relie, en
+// UV, au centre de la tuile (une cellule convexe, dix lectures de la carte).
+// Le pixel pose sur un joint est exclu : le contour de la tuile reste.
+// Bornes : moins d'un rayon et demi du centre dans l'espace ET en UV (l'ile
+// UV voisine peut passer au meme endroit de la texture), et le seul overlay
+// qui porte la tuile. De loin, quand la carte ne distingue plus les joints,
+// un disque du rayon de la tuile.
+float TileHole(TileFrame f, float3 sPos)
+{
+	float r = _RustTile.w;
+	float dist = length(sPos - _RustPos.xyz);
+	float2 duv = _RustTile.xy - f.uv;
+	float hole = 0.0;
+	[branch] if (_RustTile.z > 0.0 && dist < 1.6 * r && length(duv) < 1.6 * _RustTile.z) {
+		float m = 0.0;
+		[unroll] for (int k = 0; k < 10; k++) {
+			m = max(m, TileSeam(f.uv + duv * ((k + 0.5) / 10.0), f.lod0));
+		}
+		// Un hexagone tient dans 1,155 rayon : au-dela, ce sont les joints
+		// voisins vus en enfilade depuis le centre, ou une arete que la
+		// carte n'a pas.
+		float cell = (1.0 - smoothstep(0.06, 0.12, m)) * (1.0 - smoothstep(1.1 * r, 1.25 * r, dist));
+		float disc = 1.0 - smoothstep(0.8 * r, 1.1 * r, dist);
+		hole = lerp(cell, disc, saturate(f.lod0 - 1.0));
+	}
+	return hole;
 }
 
 // Couverture du motif Tuiles, a la place de grime, et densite de joints
 // autour du pixel (0 sur l'inox nu, ~1 sur les tuiles) pour couper le revenu.
 // Le depot transporte peut atteindre des faces moins exposees que ses
 // sources : son masque est adouci ; l'usure suit la chauffe du pixel au carre.
+// rust : couverture de la coulure de rouille (type vol 15), a part parce
+// qu'elle a sa propre couleur. hole : la tuile manquante a sa source.
 float TileGrime(float3 sPos, float2 uv, float3 n, float3 dw, float3 dl, float mask,
-                out float density)
+                float3 sNormal, out float density, out float rust, out float hole)
 {
 	density = 0.0;
+	rust = 0.0;
+	hole = 0.0;
 	TileFrame f = TileBuildFrame(sPos, uv, dl);
 	if (_SeamOn < 0.5 || !f.ok) {
 		return 0.0;
@@ -378,8 +638,26 @@ float TileGrime(float3 sPos, float2 uv, float3 n, float3 dw, float3 dl, float ma
 	density = saturate(TileSeam(uv, max(f.lod0, 6.0)) * LOSKET_SEAM_CAL * 40.0);
 	float soft = saturate((dot(n, dw) + 2.0) / 3.0);
 	float depMask = max(mask, soft * 0.6);
-	return saturate(_BurnMag * (dep * (0.15 + 0.85 * fil) * 4.0 * depMask +
-		_EdgeWear * wear * mask * mask));
+	// Type vol 15 : les coulures sont pleines des leur depart (les filaments
+	// ne les eteignent qu'a 40 %), et un voile blanc tres leger, par plaques
+	// d'un metre etirees par les filaments, salit le noir des tuiles.
+	float filFloor = lerp(0.15, 0.4, _TileStyle);
+	float haze = 0.0;
+	[branch] if (_TileStyle > 0.5) {
+		float patches = smoothstep(0.35, 0.8, vnoise(sPos * 1.1 + float3(4.1, 9.2, 6.3)));
+		haze = density * (0.015 + 0.07 * patches * (0.35 + 0.65 * fil));
+		[branch] if (_RustPos.w > 0.5) {
+			// Gain modere : seul le coeur de la coulure est plein, ses bords
+			// fondent (a 3, une coulure etroite sortait en aplat a bord net).
+			rust = saturate(_BurnMag * TileRust(sPos, f.n, sNormal, dl, f.pxm) *
+				2.0 * depMask);
+			// L'acier nu se voit des que la piece a un peu chauffe, ou
+			// qu'elle regarde : la tuile n'attend pas le depot pour manquer.
+			hole = TileHole(f, sPos) * saturate(_BurnMag * 12.0);
+		}
+	}
+	return saturate(_BurnMag * (dep * (filFloor + (1.0 - filFloor) * fil) * 4.0 * depMask +
+		_EdgeWear * wear * mask * mask + haze * mask));
 }
 
 v2f vert(appdata v)
@@ -390,6 +668,7 @@ v2f vert(appdata v)
 	o.oPos = v.vertex.xyz;
 	o.sPos = mul(_ObjToPattern, float4(v.vertex.xyz, 1.0)).xyz;
 	o.pPos = mul(_ObjToPart, float4(v.vertex.xyz, 1.0)).xyz;
+	o.sNormal = mul((float3x3)_ObjToPattern, v.normal);
 	o.uv = TRANSFORM_TEX(v.uv, _BaseTex);
 	return o;
 }
@@ -518,23 +797,57 @@ Deposit ComputeDeposit(v2f i)
 	// Motif Tuiles : depot blanc transporte depuis les joints, a la place
 	// des bruits. Branche uniforme : rien n'est calcule quand il est eteint.
 	float tileDensity = 0.0;
+	float tileRust = 0.0;
+	float tileHole = 0.0;
 	[branch] if (_Pattern > 1.5) {
-		grime = TileGrime(i.sPos, i.uv, n, dw, dl, mask, tileDensity);
+		grime = TileGrime(i.sPos, i.uv, n, dw, dl, mask, i.sNormal, tileDensity, tileRust, tileHole);
 	}
 	float soot = (1.0 - exp(-3.0 * grime)) * saturate(_SootGain);
+	// Coulure de rouille : une couche de plus, par-dessus le depot blanc.
+	tileRust *= saturate(_SootGain);
+	tileHole *= saturate(_SootGain);
+	// La ou la tuile manque il n'y a ni depot blanc ni lisere : l'acier nu
+	// remplace tout.
+	soot = lerp(1.0 - (1.0 - soot) * (1.0 - tileRust), 1.0, tileHole);
 
 	// --- Revenu : la teinte vient de la LUT, jamais d'un slider ---
-	float noise = lerp(blob, svn, saturate(_Pattern));
-	float lutU = saturate(_PeakTemp * (0.55 + 0.45 * mask) + 0.12 * (noise - 0.5));
+	// Motif Tuiles : le bruit des taches. Celui des stries dessine des arcs
+	// concentriques autour de la colonne vertebrale, qui se lisent en pelures
+	// d'oignon des que la teinte varie vite.
+	float noise = lerp(blob, svn, saturate(_Pattern) * step(_Pattern, 1.5));
+	float heatU = 0.55 + 0.45 * mask;
+	// Motif Tuiles : l'inox ne se voit qu'au-dela du bord du bouclier, sur le
+	// flanc sous le vent, ou la temperature tombe vite. Sur le vrai Starship
+	// (vaisseau du vol 15 sur la tour) les teintes du revenu y defilent toutes
+	// en un metre : gris-bleu contre les tuiles, puis bleu, pourpre, brun,
+	// paille, puis l'inox nu. Avec la formule generale, qui ne parcourt que
+	// la moitie haute de la LUT et suit un masque presque plat de ce cote, le
+	// flanc entier sortait d'un seul violet. Ici la temperature suit l'angle
+	// au vent : pleine jusqu'a 107 degres du vent, nulle a 133 degres.
+	float leeHeat = smoothstep(-0.68, -0.3, dot(n, dw));
+	heatU = lerp(heatU, 0.2 + 0.8 * leeHeat, step(1.5, _Pattern));
+	float lutU = saturate(_PeakTemp * heatU + 0.12 * (noise - 0.5));
 	fixed4 temper = tex2D(_TemperLut, float2(lutU, 0.5));
 	d.temperRgb = temper.rgb;
 	// Motif Tuiles : pas de revenu sur les tuiles elles-memes (ceramique),
 	// seulement sur l'inox, la ou la carte de joints est vide.
+	// La frange du motif Tuiles court le long de tout le bord du bouclier,
+	// du nez a la queue : son opacite suit la chauffe de ce bord (leeHeat) et
+	// non le seul masque, que le gradient d'etalement eteint vers l'aval et
+	// qui laissait la frange invisible sur les deux tiers arriere du flanc.
+	float heatMask = lerp(mask, max(mask, 0.35 * leeHeat), step(1.5, _Pattern));
 	d.temperA = temper.a * _TemperGain *
-		smoothstep(0.02, 0.25, mask * _BurnMag) * (1.0 - soot) * (1.0 - tileDensity);
+		smoothstep(0.02, 0.25, heatMask * _BurnMag) * (1.0 - soot) * (1.0 - tileDensity);
 
 	// --- Couleur du depot : suie noire ou trace blanchie ---
 	fixed3 deposit = lerp(_SootColor.rgb, fixed3(0.93, 0.91, 0.88), _Bleach);
+	// Oxyde de fer de la coulure de rouille, pour sa part de la couverture.
+	deposit = lerp(deposit, fixed3(0.58, 0.23, 0.07), tileRust / max(soot, 1e-3));
+	// Acier mis a nu et oxyde : brun sombre marbre d'orange, plus sombre que
+	// la coulure qu'il nourrit (la cavite est a l'ombre des tuiles voisines).
+	fixed3 bare = lerp(fixed3(0.20, 0.09, 0.05), fixed3(0.50, 0.21, 0.07),
+		0.2 + 0.5 * vnoise(i.sPos * 21.0 + 7.7) + 0.3 * vnoise(i.sPos * 67.0 + 2.1));
+	deposit = lerp(deposit, bare, tileHole);
 	d.col = lerp(temper.rgb, deposit, soot);
 	d.sootN = saturate(soot / LOSKET_SOOT_FULL);
 
