@@ -222,8 +222,9 @@ biggest plumes, and the upstream edge of each tile whitens where its black
 coating wears off.
 
 The tiles are wherever the part's own texture draws them. Losket reads the
-seams out of the base texture once (a line detector on its brightness, baked
-into a small map), picks which of them leak, and carries the powder along the
+seams out of the base texture once (a line detector on its contrast, baked
+into a small map; seams painted lighter or darker than the tiles both
+count, however faint), picks which of them leak, and carries the powder along the
 airflow in the texture's own space, so nothing is projected or distorted
 and nothing needs to be told where the tiles are. A bare steel texture has
 no seams, so it gets no tile marks and keeps its heat tint; a tiled one

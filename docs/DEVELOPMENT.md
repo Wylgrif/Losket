@@ -71,6 +71,22 @@ way to judge a pattern setting in seconds; it has no lighting and no
 directional mask, so the game remains the final judge. Any change to the
 shader's noise has to be mirrored in the script.
 
+### Checking tile seam detection without the game
+
+```bash
+python Tools/seam_map.py path/to/texture.dds --out out --crop 2000,2000,192
+```
+
+Runs a numpy mirror of the `Losket/SeamMap` bake shader on a part texture
+(DXT1/DXT5 `.dds`, or anything Pillow opens) and prints the mean density of
+the seam map: about 0.045 on the Starship SEP tile textures, under 0.005 on
+its bare steel. With `--out` it writes the map as a PNG, or with `--crop` a
+zoomed source/map pair. Use it when the Tiles pattern leaves a mod's heat
+shield unmarked: it shows what the detector reads in that texture, and lets
+you try other thresholds (`--low`, `--high`). It matches the GPU output to the
+pixel, so any change to the shader has to be mirrored in the script (needs
+numpy, scipy and Pillow).
+
 ### Reading logs
 
 ```bash

@@ -69,6 +69,17 @@ float _FanTan, _EdgeWear;
 // de saturation ci-dessous. Sert a ramener la couverture a 1.
 #define LOSKET_SOOT_FULL 0.9502
 
+// Calage de la carte de joints. Les gains du motif Tuiles (sources, coupure
+// du revenu) ont ete regles et valides en jeu sur le Starship SEP Block 3 avec
+// la premiere carte, qui n'y relevait que des troncons de joints : densite
+// moyenne 0,0081. La carte actuelle releve le reseau entier, 0,045 sur les
+// trois Blocks. Ce facteur (0,0081 / 0,045) garde au Block 3 la quantite de
+// depot validee ; les Blocks 1 et 2 s'y alignent. Le monter rend chaque fuite
+// plus blanche sur toutes les tuiles, sans toucher a leur nombre (curseur
+// "joints qui fuient"). L'usure des bords, elle, se lit trait par trait et
+// n'est pas calee : elle suit desormais tous les joints.
+#define LOSKET_SEAM_CAL 0.18
+
 struct appdata
 {
 	float4 vertex : POSITION;
@@ -176,8 +187,9 @@ float wnoise(float3 p, float amount)
 // sources : docs/traces-starship.md.
 //
 // Les tuiles sont la ou la TEXTURE les dessine. Une carte de joints est cuite
-// une fois par texture de base (Losket/SeamMap : passe-haut de la luminance,
-// RenderTexture avec mipmaps, LosketOverlayRig.SeamMapFor) ; une texture
+// une fois par texture de base (Losket/SeamMap : detecteur de lignes sur la
+// log-luminance, joints clairs comme sombres, RenderTexture avec mipmaps,
+// LosketOverlayRig.SeamMapFor) ; une texture
 // d'inox nu donne une carte vide, donc pas de tuiles sur l'inox, sans
 // reglage. Une premiere version projetait une grille hexagonale sur une carte
 // cylindrique de la piece : toute carte deforme des que la piece n'est pas
@@ -283,8 +295,9 @@ float TileSources(TileFrame f, float2 uv, float lod)
 	float broken = step(1.0 - _BrokenFrac, TileCellHash(uv, f.cellUV, 3.0));
 	// Gain : un joint fait un centimetre (deux texels d'une texture de 4096
 	// pour des hexagones de 51 texels), douze fois moins que la bande d'un
-	// quart de tuile de l'ancienne grille.
-	return seam * (leak * 18.0 + broken * 48.0);
+	// quart de tuile de l'ancienne grille. LOSKET_SEAM_CAL ramene la carte
+	// complete au niveau de celle sur laquelle ces gains ont ete regles.
+	return seam * LOSKET_SEAM_CAL * (leak * 18.0 + broken * 48.0);
 }
 
 // Depot transporte : remonte le courant en UV et somme les sources amont,
@@ -360,9 +373,9 @@ float TileGrime(float3 sPos, float2 uv, float3 n, float3 dw, float3 dl, float ma
 	float fil = TileFilaments(f, sPos);
 	float wear = TileWear(f);
 	// Les joints couvrent quelques pour cent de la surface d'une tuile : a un
-	// niveau de mip grossier la carte vaut ~0,03 sur les tuiles SEP, ~0,004
-	// sur leur inox (soudures).
-	density = saturate(TileSeam(uv, max(f.lod0, 6.0)) * 40.0);
+	// niveau de mip grossier la carte vaut ~0,045 sur les tuiles SEP (les
+	// trois Blocks), 0,0001 a 0,003 sur leur inox (soudures).
+	density = saturate(TileSeam(uv, max(f.lod0, 6.0)) * LOSKET_SEAM_CAL * 40.0);
 	float soft = saturate((dot(n, dw) + 2.0) / 3.0);
 	float depMask = max(mask, soft * 0.6);
 	return saturate(_BurnMag * (dep * (0.15 + 0.85 * fil) * 4.0 * depMask +
