@@ -139,12 +139,15 @@ namespace Losket
 
 		// Etat du vaisseau, releve quelques fois par seconde et non a chaque
 		// passe d'OnGUI : nombre de pieces, preregle commun (null = plusieurs),
-		// type de bouclier commun aux pieces Tuiles, apercu allume quelque part.
+		// presence de pieces Tuiles et leur type de bouclier commun, apercu
+		// allume quelque part.
 		private readonly List<ModuleLosketBurn> modules = new List<ModuleLosketBurn>();
 		private int partCount;
 		private string commonPreset;
 		private string shield = LosketKeys.ShieldFlight15;
 		private bool anyPreview;
+		private bool anyTiles;
+		private bool showShield;
 		private float nextSurvey;
 
 		public static void Toggle()
@@ -195,7 +198,8 @@ namespace Losket
 			}
 			// Le selecteur suit le vaisseau tant que ses pieces Tuiles sont
 			// d'accord ; sinon il garde le dernier choix du joueur.
-			if (tilesShield != null && !tilesMixed) {
+			anyTiles = tilesShield != null;
+			if (anyTiles && !tilesMixed) {
 				shield = tilesShield;
 			}
 			modules.Clear();
@@ -251,22 +255,30 @@ namespace Losket
 				GUILayout.EndHorizontal();
 			}
 
-			// Type de bouclier du preregle Tuiles : sert au bouton Tuiles
-			// ci-dessus, et change sur-le-champ les pieces deja en Tuiles.
-			GUILayout.BeginHorizontal();
-			GUILayout.Label(Localizer.Format("#LOC_Losket_TileShield"), GUILayout.Width(110f));
-			var options = LosketKeys.ShieldOptions;
-			var current = Mathf.Max(0, System.Array.IndexOf(options, shield));
-			var chosen = GUILayout.Toolbar(current, LosketKeys.ShieldDisplay());
-			GUILayout.EndHorizontal();
-			if (chosen != current) {
-				shield = options[chosen];
-				var n = LosketVesselStyle.ApplyShield(shield);
-				if (n > 0) {
-					Say(Localizer.Format("#LOC_Losket_Vessel_Applied",
-						LosketKeys.PresetLabel(LosketKeys.PresetTiles), n));
+			// Type de bouclier du preregle Tuiles : comme dans le menu de
+			// piece, la ligne n'existe que si des pieces sont en Tuiles, et la
+			// changer les reapplique sur-le-champ. Visibilite figee a la passe
+			// Layout : un clic sur Tuiles la fait apparaitre en cours de passe.
+			if (Event.current.type == EventType.Layout) {
+				showShield = anyTiles;
+			}
+			if (showShield) {
+				GUILayout.BeginHorizontal();
+				GUILayout.Label(Localizer.Format("#LOC_Losket_TileShield"),
+					GUILayout.Width(110f));
+				var options = LosketKeys.ShieldOptions;
+				var current = Mathf.Max(0, System.Array.IndexOf(options, shield));
+				var chosen = GUILayout.Toolbar(current, LosketKeys.ShieldDisplay());
+				GUILayout.EndHorizontal();
+				if (chosen != current) {
+					shield = options[chosen];
+					var n = LosketVesselStyle.ApplyShield(shield);
+					if (n > 0) {
+						Say(Localizer.Format("#LOC_Losket_Vessel_Applied",
+							LosketKeys.PresetLabel(LosketKeys.PresetTiles), n));
+					}
+					Survey();
 				}
-				Survey();
 			}
 
 			var all = LosketUserPresets.All;
