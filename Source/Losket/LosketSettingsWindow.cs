@@ -57,6 +57,15 @@ namespace Losket
 
 		private void DrawWindow(int id)
 		{
+			// Dans l'editeur, l'acces au preregle de tout le vaisseau passe
+			// avant les defauts de partie : c'est ce qu'on vient y chercher.
+			if (HighLogic.LoadedSceneIsEditor) {
+				if (GUILayout.Button(Localizer.Format("#LOC_Losket_Vessel_Open"))) {
+					LosketVesselWindow.Toggle();
+				}
+				GUILayout.Space(6f);
+			}
+
 			var settings = LosketSettings.Instance;
 			if (settings == null) {
 				GUILayout.Label(Localizer.Format("#LOC_Losket_Set_NoGame"));

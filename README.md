@@ -59,6 +59,14 @@ Losket group:
   dropped there is picked up with **Reload**. Keep that folder when you
   update the mod.
 - Preview scorching — shows the effect in the editor without flying.
+- Whole vessel — in the VAB and SPH, the toolbar window has a **Whole vessel
+  scorching...** button. It opens a window listing the presets (yours
+  included): click one and every part of the vessel takes it. The same window
+  switches the Tiles heat shield type and the preview for the whole vessel at
+  once. To spread a Custom look instead, tune one part in its Advanced
+  settings window and click **Apply to the whole vessel** there. Each part
+  still keeps its own setting afterwards, and parts added later start with
+  the default preset.
 - Exhaust: scorching / no heat — on engine parts only. Propellers, turboprops
   and lift fans are guessed from their part name and start as "no heat", so
   their wash leaves no soot or heat tint on the fuselage; jets and rockets

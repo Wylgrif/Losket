@@ -164,7 +164,14 @@ namespace Losket
 
 			DrawUserPresets(m);
 
+			// Le style de cette piece, reglages Personnalise compris, recopie
+			// sur toutes les autres pieces du vaisseau.
 			GUILayout.Space(8f);
+			if (GUILayout.Button(Localizer.Format("#LOC_Losket_Win_ApplyVessel"))) {
+				Say(Localizer.Format("#LOC_Losket_Vessel_Copied",
+					LosketVesselStyle.CopyFrom(m)));
+			}
+
 			if (GUILayout.Button(Localizer.Format("#LOC_Losket_Win_Close"))) {
 				target = null;
 				ReleaseLock();

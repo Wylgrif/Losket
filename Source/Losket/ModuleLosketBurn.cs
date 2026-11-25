@@ -757,6 +757,20 @@ namespace Losket
 			}
 		}
 
+		public bool EditorPreview
+		{
+			get { return editorPreview; }
+		}
+
+		/// <summary>Apercu allume ou eteint d'office, pour la fenetre
+		/// "Vaisseau entier" qui le commande sur toutes les pieces a la fois.</summary>
+		public void SetEditorPreview(bool on)
+		{
+			if (editorPreview != on) {
+				ToggleEditorPreview();
+			}
+		}
+
 		private void FixedUpdate()
 		{
 			if (!HighLogic.LoadedSceneIsFlight || vessel == null || part.packed) {
